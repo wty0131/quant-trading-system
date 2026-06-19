@@ -1,0 +1,45 @@
+# ============================================================
+# 量化交易系统 — Git Ignore
+# ============================================================
+
+# 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 环境变量（含敏感信息）
+.env
+
+# 数据库文件
+*.db
+*.sqlite3
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志
+logs/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 回测输出
+output/
+results/
+
+# 临时文件
+*.tmp
+*.bak

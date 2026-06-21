@@ -15,9 +15,9 @@ import ccxt
 from .base import DataSource
 
 
-# 直连优先（国内能通的），代理次之
-DIRECT_EXCHANGES = ["gate"]      # Gate.io 国内直连
-PROXY_EXCHANGES = ["binance", "kraken", "okx", "bybit", "coinbase", "bitfinex"]
+# 直连优先（Gate.io 国内能通），代理交易所按已验证顺序排列
+DIRECT_EXCHANGES = ["gate"]
+PROXY_EXCHANGES = ["kraken", "coinbase", "bitfinex", "binance", "okx", "bybit"]
 
 
 class CryptoSource(DataSource):

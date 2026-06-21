@@ -129,13 +129,24 @@ CryptoSource()
 # === Cell 9 ===
 code("""import os
 os.environ["PROXY_SOCKS5"] = "socks5://127.0.0.1:10808"  # v2rayN
-
+import importlib
+import data.sources.crypto as cmod
+importlib.reload(cmod)  # 强制重载最新代码
 from data.sources.crypto import CryptoSource
+
 crypto = CryptoSource()  # 自动探测
 df_c = crypto.get_history(["BTC/USDT", "ETH/USDT"], "2024-01-01", "2024-06-30")
-print(f"加密: {df_c.symbol.nunique()} 对, {len(df_c)} 行, market={df_c.market.iloc[0]}")
-print(f"每对: {df_c.groupby('symbol').size().to_dict()}")
-df_c.head(3)""")
+
+if df_c.empty:
+    print("⚠️ 加密数据为空")
+    print("   1. 确认 v2rayN 正在运行")
+    print("   2. 确认 SOCKS5 端口 10808")
+    print("   3. 手动验证: crypto.exchange_name")
+    print(f"   当前交易所: {crypto.exchange_name}")
+else:
+    print(f"加密: {df_c.symbol.nunique()} 对, {len(df_c)} 行")
+    print(f"每对: {df_c.groupby('symbol').size().to_dict()}")
+    df_c.head(3)""")
 
 # === Cell 10 ===
 md("""## 6. USStockSource -- 美股+港股 (SOCKS5 代理)
@@ -160,9 +171,12 @@ md("""## 7. 三市场对比 -- 同一份代码
 code("""fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 datasets = [
     (df_a[df_a.symbol=="sh.000300"], "CSI 300", "steelblue"),
-    (df_c[df_c.symbol=="BTC/USDT"],   "BTC/USDT", "orange"),
-    (df_us[df_us.symbol=="AAPL"],     "Apple",    "green"),
 ]
+if not df_c.empty:
+    datasets.append((df_c[df_c.symbol=="BTC/USDT"], "BTC/USDT", "orange"))
+if not df_us.empty:
+    datasets.append((df_us[df_us.symbol=="AAPL"], "Apple", "green"))
+
 for ax, (df, name, color) in zip(axes, datasets):
     ret = np.log(df["close"] / df["close"].shift(1)).dropna()
     ax.hist(ret, bins=50, density=True, alpha=0.7, color=color)
@@ -173,12 +187,15 @@ for ax, (df, name, color) in zip(axes, datasets):
     sharpe = (mu*252 - 0.025) / (sig*np.sqrt(252)) if sig > 0 else 0
     ax.set_title(f"{name}\\nvol={vol_annual:.1f}% | Sharpe={sharpe:.2f}", fontsize=10)
     ax.axvline(x=0, color="gray", ls="--", alpha=0.5)
-plt.suptitle("Same Code x 3 Markets", fontsize=13, fontweight="bold")
+# 隐藏多余的 axes
+for ax in axes[len(datasets):]:
+    ax.set_visible(False)
+plt.suptitle("Same Code x Markets", fontsize=13, fontweight="bold")
 plt.tight_layout()
 plt.show()
-print("CSI 300: moderate vol, zero return -> timing matters")
-print("BTC/USDT: high vol -> trend-following paradise")
-print("Apple: steady uptrend -> buy & hold works")""")
+for name, df, _ in datasets:
+    ret = np.log(df["close"] / df["close"].shift(1)).dropna()
+    print(f"{name}: annual_vol={ret.std()*np.sqrt(252)*100:.1f}% sharpe={((ret.mean()*252-0.025)/(ret.std()*np.sqrt(252))):.2f}")""")
 
 # === Cell 14 ===
 md("""## 8. SQLite 存储 -- 三市场全部落地
@@ -191,15 +208,22 @@ import time
 
 store = DataStore("../data/quant.db")
 store.save(df_a, "ashare", "daily")
-store.save(df_c, "crypto", "daily")
-store.save(df_us, "usstock", "daily")
+if not df_c.empty:
+    store.save(df_c, "crypto", "daily")
+if not df_us.empty:
+    store.save(df_us, "usstock", "daily")
 
 display(store.list_tables())
 
-t0 = time.time()
-df_sql = store.load("usstock", "daily", symbols=["AAPL"])
-print(f"\\nSQLite read: {len(df_sql)} rows, {(time.time()-t0)*1000:.0f}ms")
-print("vs first pull: 1000x faster")""")
+if not df_us.empty:
+    t0 = time.time()
+    df_sql = store.load("usstock", "daily", symbols=["AAPL"])
+    print(f"\\nSQLite read: {len(df_sql)} rows, {(time.time()-t0)*1000:.0f}ms")
+    print("vs first pull: 1000x faster")
+else:
+    t0 = time.time()
+    df_sql = store.load("ashare", "daily", symbols=["sh.000300"])
+    print(f"\\nSQLite read (ashare): {len(df_sql)} rows, {(time.time()-t0)*1000:.0f}ms")""")
 
 # === Cell 16 ===
 md("""## 9. End-to-end -- offline analysis
@@ -207,14 +231,17 @@ md("""## 9. End-to-end -- offline analysis
 SQLite -> net value curve (fully offline).""")
 
 # === Cell 17 ===
-code("""df_plot = store.load("usstock", "daily", symbols=["AAPL", "MSFT"], start="2024-01-01")
+code("""# 优先显示美股，不行就用A股
+market, syms = ("usstock", ["AAPL", "MSFT"]) if not df_us.empty else ("ashare", ["sh.000300", "sh.600519"])
+df_plot = store.load(market, "daily", symbols=syms, start="2024-01-01")
+
 fig, ax = plt.subplots(figsize=(14, 5))
 for sym in df_plot.symbol.unique():
     sub = df_plot[df_plot.symbol==sym].set_index("date")
     nav = sub["close"] / sub["close"].iloc[0]
     ax.plot(nav.index, nav.values, lw=1.5, label=sym)
 ax.legend()
-ax.set_title("Apple vs Microsoft H1 2024 (source: local SQLite, no network)", fontsize=12)
+ax.set_title(f"{market} Net Value H1 2024 (source: local SQLite, no network)", fontsize=12)
 ax.set_ylabel("Net Value")
 ax.grid(True, alpha=0.3)
 plt.show()""")

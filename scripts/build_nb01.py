@@ -193,7 +193,7 @@ for ax in axes[len(datasets):]:
 plt.suptitle("Same Code x Markets", fontsize=13, fontweight="bold")
 plt.tight_layout()
 plt.show()
-for name, df, _ in datasets:
+for df, name, _ in datasets:
     ret = np.log(df["close"] / df["close"].shift(1)).dropna()
     print(f"{name}: annual_vol={ret.std()*np.sqrt(252)*100:.1f}% sharpe={((ret.mean()*252-0.025)/(ret.std()*np.sqrt(252))):.2f}")""")
 

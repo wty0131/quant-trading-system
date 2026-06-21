@@ -123,8 +123,8 @@ class DataSource(ABC):
             if col not in df.columns:
                 raise ValueError(f"数据缺少必要列: {col}")
 
-        # 类型转换
-        df["date"] = pd.to_datetime(df["date"])
+        # 类型转换 — 强制 UTC 后去掉时区，避免 yfinance 夏令时混入
+        df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["volume"] = pd.to_numeric(df.get("volume", 0), errors="coerce").fillna(0)

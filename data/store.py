@@ -183,8 +183,8 @@ class DataStore:
             if df.empty:
                 return pd.DataFrame(columns=OHLCV_COLUMNS)
 
-            # 处理混合时区：yfinance 带时区，baostock 不带
-            df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
+            # 处理混合时区：先转UTC再剥掉时区，兜底 errors='coerce'
+            df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce").dt.tz_localize(None)
             return df
 
         finally:

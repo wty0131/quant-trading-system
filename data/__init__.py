@@ -11,6 +11,7 @@
 from .sources.base import DataSource
 from .sources.ashare import AShareSource
 from .sources.crypto import CryptoSource
+from .sources.usstocks import USStockSource
 from .store import DataStore
 from .schema import OHLCV_COLUMNS, OHLCV_DTYPES
 
@@ -18,6 +19,7 @@ __all__ = [
     "DataSource",
     "AShareSource",
     "CryptoSource",
+    "USStockSource",
     "DataStore",
     "OHLCV_COLUMNS",
     "OHLCV_DTYPES",

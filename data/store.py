@@ -97,8 +97,9 @@ class DataStore:
         try:
             self._ensure_table(conn, market, interval)
 
-            # 确保日期是字符串（SQLite 友好）
+            # 确保日期是字符串（SQLite 友好），统一去掉时区
             save_df = df.copy()
+            save_df["date"] = pd.to_datetime(save_df["date"], utc=True).dt.tz_localize(None)
             save_df["date"] = save_df["date"].astype(str)
 
             # 只存标准列
@@ -182,7 +183,8 @@ class DataStore:
             if df.empty:
                 return pd.DataFrame(columns=OHLCV_COLUMNS)
 
-            df["date"] = pd.to_datetime(df["date"])
+            # 处理混合时区：yfinance 带时区，baostock 不带
+            df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
             return df
 
         finally:

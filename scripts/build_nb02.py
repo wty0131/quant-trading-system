@@ -248,7 +248,7 @@ drawdowns = (navs - running_max) / running_max
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={"height_ratios": [3, 1]})
 
 ax1.plot(dates, navs / 1_000_000, "steelblue", lw=1, label="Dual MA (5/20)")
-ax1.plot(dates, [n / 1_000_000 for n, _ in report_real.nav_history], "gray", alpha=0.5, lw=1, label="Buy & Hold")
+ax1.plot(dates, [nav / 1_000_000 for _, nav in report_real.nav_history], "gray", alpha=0.5, lw=1, label="Buy & Hold")
 ax1.axhline(y=1, color="gray", ls="--", alpha=0.3)
 ax1.set_title("Dual MA Strategy vs Buy & Hold (CSI 300, 2020-2025)", fontsize=12, fontweight="bold")
 ax1.set_ylabel("Net Value")

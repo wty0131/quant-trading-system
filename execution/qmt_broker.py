@@ -1,16 +1,20 @@
 """
 QMTBroker — A股实盘券商 (via xtquant/QMT)
 
-前提:
-  1. 券商已开通 QMT 量化交易权限
-  2. 本地安装 xtquant 包: pip install xtquant
-  3. QMT 客户端在本地运行中 (或 miniQMT 模式)
+适配券商: 长城证券 (Great Wall Securities) + 其他支持QMT的券商
 
-QMT 连接方式:
+开通步骤:
+  1. 联系长城证券客户经理，申请 QMT 量化交易权限
+     (资金门槛: 30~50万, 风险测评C4+, 1~3个工作日审核)
+  2. 获取 QMT 安装包 + xtquant Python 库
+  3. pip install xtquant (或券商提供的whl包)
+  4. 在项目 .env 填入: QMT_ACCOUNT / QMT_PATH / QMT_MINI_MODE
+
+连接方式:
+  - miniQMT: 无需完整客户端，xtquant直连券商 (推荐)
   - 完整客户端: QMT客户端运行 → xtquant 连接本地端口
-  - miniQMT:     无需完整客户端，直接 xtquant 连接券商服务器
 
-本模块提供框架——当用户获取 xtquant 后替换 _connect() 中的逻辑即可。
+开通后只需修改 connect() 方法（框架已搭好），其余 Broker 接口自动适配。
 """
 
 from datetime import datetime

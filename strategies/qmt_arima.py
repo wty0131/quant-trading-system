@@ -23,9 +23,9 @@ class QMTARIMAStrategy(Strategy):
 
     def __init__(
         self,
-        history: int = 240,
-        order: tuple = (4, 1, 3),  # (p, d, q)
-        refit_freq: int = 5,        # 每 N 根 bar 重训练一次
+        history: int = 120,              # 历史窗口（降默认值适配短区间回测）
+        order: tuple = (2, 1, 2),       # 简化ARIMA阶数减少收敛问题
+        refit_freq: int = 5,            # 每 N 根 bar 重训练一次
     ):
         super().__init__()
         self.history = history

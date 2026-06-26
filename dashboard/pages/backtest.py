@@ -77,11 +77,12 @@ def show():
             buy_th = st.slider("买入阈值", 0.1, 1.5, 0.5, 0.1)
             sell_th = st.slider("卖出阈值", -1.5, -0.1, -0.5, 0.1)
         elif strategy_key == "qmt_svm":
-            train_days = st.slider("训练天数", 100, 500, 252)
+            train_days = st.slider("训练天数", 60, 300, 120)
             feature_days = st.slider("特征窗口", 5, 30, 15)
             predict_days = st.slider("预测天数", 1, 10, 5)
+            retrain = st.slider("重训练间隔", 5, 60, 20)
         elif strategy_key == "qmt_arima":
-            history = st.slider("历史窗口", 100, 500, 240)
+            history = st.slider("历史窗口", 60, 300, 120)
             refit = st.slider("重训练间隔", 1, 20, 5)
         elif strategy_key == "qmt_index_ma":
             idx_name = st.selectbox("指数", ["上证50"])
@@ -134,7 +135,7 @@ def show():
         elif strategy_key == "rsrs":
             strategy = RSRSStrategy(window, buy_th, sell_th)
         elif strategy_key == "qmt_svm":
-            strategy = QMTSVMStrategy(train_days, feature_days, predict_days)
+            strategy = QMTSVMStrategy(train_days, feature_days, predict_days, retrain_freq=retrain)
         elif strategy_key == "qmt_arima":
             strategy = QMTARIMAStrategy(history, refit_freq=refit)
         elif strategy_key == "qmt_index_ma":

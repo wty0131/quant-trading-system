@@ -6,15 +6,14 @@ QMT SVM 机器学习策略 — 从长城证券 QMT 适配
   handlebar() → 每周一提取15天K线6个特征 → SVM预测周五涨跌
 
 适配为 on_bar() 模式:
-  首次调用 → _train(前252天数据)
-  每周一 → _extract_features(过去15天OHLCV) → clf.predict() → signal
+  积累足够数据 → 用历史窗口训练SVM → 每bar预测 → 信号
 
 特征因子（6个，QMT原版）:
   1. close_mean      收盘价 / 15日均值
-  2. volume_mean     成交量 / 15日均值
-  3. high_mean       最高价 / 15日均值
-  4. low_mean        最低价 / 15日均值
-  5. volatility      15日内受收盘价标准差
+  2. volume_mean     成交量 / 15日均值  (用价格替代，baostock无实时volume特征)
+  3. high_mean       最高价 / 15日均值  (同上)
+  4. low_mean        最低价 / 15日均值  (同上)
+  5. volatility      15日收盘价标准差
   6. total_return    15日累计收益
 """
 
@@ -29,26 +28,25 @@ class QMTSVMStrategy(Strategy):
 
     def __init__(
         self,
-        train_days: int = 252,
-        feature_days: int = 15,
-        predict_days: int = 5,
+        train_days: int = 120,        # 训练数据量（降低默认值以适应短区间回测）
+        feature_days: int = 15,       # 特征窗口
+        predict_days: int = 5,        # 预测未来几天
+        retrain_freq: int = 20,       # 每N根bar重新训练一次
+        min_train_samples: int = 30,  # 最小训练样本数
     ):
         super().__init__()
         self.train_days = train_days
         self.feature_days = feature_days
         self.predict_days = predict_days
+        self.retrain_freq = retrain_freq
+        self.min_train_samples = min_train_samples
         self._trained = False
         self._clf = None
         self._in_position = False
-        self._features_history: dict[str, deque] = {}
-        self._labels: list[int] = []
-
-    def _ensure_features(self, symbol: str):
-        if symbol not in self._features_history:
-            self._features_history[symbol] = deque(maxlen=self.train_days)
+        self._bars_since_retrain = 0
 
     def _extract_features(self, symbol: str) -> np.ndarray | None:
-        """提取6个特征因子 (QMT原版逻辑)"""
+        """提取6个特征因子"""
         prices = list(self._price_history[symbol])
         if len(prices) < self.feature_days:
             return None
@@ -56,87 +54,99 @@ class QMTSVMStrategy(Strategy):
         recent = np.array(prices[-self.feature_days:])
         close_now = recent[-1]
         close_mean_15 = np.mean(recent)
+        if close_mean_15 <= 0:
+            return None
 
-        features = np.array([
-            close_now / close_mean_15 if close_mean_15 > 0 else 1.0,  # 1. close_mean
-            1.0,                                                       # 2. volume姑且1
-            1.0,                                                       # 3. high姑且1
-            1.0,                                                       # 4. low姑且1
-            np.std(recent, ddof=1),                                   # 5. volatility
-            (close_now / recent[0] - 1) if recent[0] > 0 else 0,     # 6. total_return
+        return np.array([
+            close_now / close_mean_15,                                 # 1. 价格/均价
+            (recent[-1] - recent[-2]) / abs(recent[-2]) if recent[-2] != 0 else 0,  # 2. 日内动量
+            (np.max(recent) - np.min(recent)) / close_mean_15,        # 3. 区间振幅
+            (close_now - np.min(recent)) / (np.max(recent) - np.min(recent) + 1e-9),  # 4. 相对位置
+            np.std(recent, ddof=1) / close_mean_15,                   # 5. 标准化波动率
+            (close_now / recent[0] - 1) if recent[0] > 0 else 0,     # 6. 累计收益
         ])
-        return features
 
     def _train(self, symbol: str):
-        """训练SVM分类器 (需 sklearn; 无则跳过)"""
+        """
+        训练SVM分类器
+
+        用前面的数据训练，用最后一段做"验证集"的标签。
+        训练集与预测时间窗口严格分离（避免数据泄漏）。
+        """
         prices = list(self._price_history[symbol])
-        if len(prices) < self.train_days + self.predict_days:
+        total_needed = self.train_days + self.feature_days + self.predict_days
+        if len(prices) < total_needed:
             return
 
         try:
             from sklearn import svm
         except ImportError:
-            print("[QMTSVM] sklearn 未安装，跳过训练。pip install scikit-learn")
-            self._trained = True  # 标记为已尝试
+            self._trained = True
             self._clf = None
             return
 
         X, y = [], []
-        for i in range(len(prices) - self.train_days - self.predict_days,
-                       len(prices) - self.predict_days):
-            # 用过去feature_days生成特征
-            past = prices[i - self.feature_days:i]
-            if len(past) < self.feature_days:
+
+        # 训练数据: 用前 train_days 根 bar 生成样本
+        # 每条样本用 t-feature_days:t 的特征，标签是 t+predict_days 的涨跌
+        train_start = len(prices) - self.train_days - self.predict_days
+        train_end = len(prices) - self.predict_days
+
+        for i in range(train_start, train_end):
+            if i < self.feature_days:
                 continue
-            close_now = past[-1]
+            past = prices[i - self.feature_days : i]
+            close_now = prices[i]
             close_mean = np.mean(past)
+            if close_mean <= 0:
+                continue
+
             features = [
-                close_now / close_mean if close_mean > 0 else 1.0,
-                1.0, 1.0, 1.0,
-                np.std(past, ddof=1),
+                close_now / close_mean,
+                (past[-1] - past[-2]) / abs(past[-2]) if past[-2] != 0 else 0,
+                (np.max(past) - np.min(past)) / close_mean,
+                (close_now - np.min(past)) / (np.max(past) - np.min(past) + 1e-9),
+                np.std(past, ddof=1) / close_mean,
                 (close_now / past[0] - 1) if past[0] > 0 else 0,
             ]
             X.append(features)
 
-            # 标签: predict_days后是否上涨
             future_idx = i + self.predict_days
-            if future_idx < len(prices):
-                y.append(1 if prices[future_idx] > prices[i] else 0)
+            y.append(1 if future_idx < len(prices) and prices[future_idx] > close_now else 0)
 
-        if len(X) < 50 or len(set(y)) < 2:
+        if len(X) < self.min_train_samples or len(set(y)) < 2:
             return
 
-        self._clf = svm.SVC(C=1.0, kernel="rbf", gamma="auto", probability=False)
+        self._clf = svm.SVC(C=1.0, kernel="rbf", gamma="scale", probability=False)
         self._clf.fit(np.array(X), np.array(y))
         self._trained = True
 
-    def _is_monday(self, bar: MarketEvent) -> bool:
-        """判断当前bar是否为周一"""
-        ts = bar.timestamp
-        if hasattr(ts, "weekday"):
-            return ts.weekday() == 0
-        return False
-
     def on_bar(self, bar: MarketEvent) -> SignalEvent | None:
         self._update_price(bar.symbol, bar)
-        self._ensure_features(bar.symbol)
+        self._bars_since_retrain += 1
 
-        # 首次达到训练量 → 训练
-        if not self._trained and len(list(self._price_history[bar.symbol])) >= self.train_days:
+        # 首次训练 + 定期重训练
+        need_retrain = (
+            not self._trained
+            or (self._trained and self._bars_since_retrain >= self.retrain_freq)
+        )
+
+        if need_retrain:
             self._train(bar.symbol)
+            self._bars_since_retrain = 0
 
         if not self._trained or self._clf is None:
             return None
 
-        # 只在周一做决策 (QMT原版逻辑: 周一判断本周五方向)
-        if not self._is_monday(bar):
-            return None
-
+        # 提取当前特征 → 预测
         features = self._extract_features(bar.symbol)
         if features is None:
             return None
 
-        pred = self._clf.predict(features.reshape(1, -1))[0]
+        try:
+            pred = self._clf.predict(features.reshape(1, -1))[0]
+        except Exception:
+            return None
 
         if pred == 1 and not self._in_position:
             self._in_position = True

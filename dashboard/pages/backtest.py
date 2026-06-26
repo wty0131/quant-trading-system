@@ -50,9 +50,11 @@ def show():
 
         col1, col2 = st.columns(2)
         with col1:
-            start_date = st.date_input("起始日", pd.Timestamp("2024-01-01"))
+            start_date = st.date_input("起始日", pd.Timestamp("2020-01-01"),
+                                       min_value=pd.Timestamp("2010-01-01"))
         with col2:
-            end_date = st.date_input("结束日", pd.Timestamp("2024-12-31"))
+            end_date = st.date_input("结束日", pd.Timestamp("2026-06-25"),
+                                     min_value=pd.Timestamp("2010-01-01"))
 
         st.divider()
         st.subheader("策略参数")

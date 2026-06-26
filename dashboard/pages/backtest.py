@@ -11,6 +11,9 @@ from backtest.strategy import DualMAStrategy, BuyAndHoldStrategy
 from strategies.bollinger import BollingerStrategy
 from strategies.turtle import TurtleStrategy
 from strategies.rsrs import RSRSStrategy
+from strategies.qmt_svm import QMTSVMStrategy
+from strategies.qmt_arima import QMTARIMAStrategy
+from strategies.qmt_index_ma import QMTIndexMAStrategy
 
 
 STRATEGIES = {
@@ -19,6 +22,10 @@ STRATEGIES = {
     "布林带 Bollinger": ("bollinger", None),
     "海龟 Turtle": ("turtle", None),
     "RSRS 阻力支撑": ("rsrs", None),
+    "---": ("sep", None),
+    "QMT SVM 机器学习": ("qmt_svm", None),
+    "QMT ARIMA 预测": ("qmt_arima", None),
+    "QMT 上证50 批量MA": ("qmt_index_ma", None),
 }
 
 SYMBOLS = {
@@ -51,6 +58,9 @@ def show():
         st.subheader("策略参数")
 
         strategy_key = STRATEGIES[strategy_name][0]
+        if strategy_key == "sep":
+            st.info("请选择上方具体策略类型")
+            return
 
         if strategy_key == "dual":
             short = st.slider("短期均线", 2, 20, 5)
@@ -66,6 +76,17 @@ def show():
             window = st.slider("回归窗口", 5, 40, 18)
             buy_th = st.slider("买入阈值", 0.1, 1.5, 0.5, 0.1)
             sell_th = st.slider("卖出阈值", -1.5, -0.1, -0.5, 0.1)
+        elif strategy_key == "qmt_svm":
+            train_days = st.slider("训练天数", 100, 500, 252)
+            feature_days = st.slider("特征窗口", 5, 30, 15)
+            predict_days = st.slider("预测天数", 1, 10, 5)
+        elif strategy_key == "qmt_arima":
+            history = st.slider("历史窗口", 100, 500, 240)
+            refit = st.slider("重训练间隔", 1, 20, 5)
+        elif strategy_key == "qmt_index_ma":
+            idx_name = st.selectbox("指数", ["上证50"])
+            short = st.slider("短期均线", 2, 20, 5)
+            long = st.slider("长期均线", 5, 60, 20)
 
         st.divider()
         initial_cash = st.number_input("初始资金", 100_000, 100_000_000, 1_000_000, 100_000)
@@ -112,6 +133,12 @@ def show():
             strategy = TurtleStrategy(entry, exit_p, atr_p, 2.0)
         elif strategy_key == "rsrs":
             strategy = RSRSStrategy(window, buy_th, sell_th)
+        elif strategy_key == "qmt_svm":
+            strategy = QMTSVMStrategy(train_days, feature_days, predict_days)
+        elif strategy_key == "qmt_arima":
+            strategy = QMTARIMAStrategy(history, refit_freq=refit)
+        elif strategy_key == "qmt_index_ma":
+            strategy = QMTIndexMAStrategy(idx_name, short, long)
         else:
             st.error("未知策略")
             return

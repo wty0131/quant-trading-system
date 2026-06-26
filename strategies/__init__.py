@@ -17,6 +17,10 @@ from .rsrs import RSRSStrategy
 from .multifactor import MultiFactorStrategy
 from .pairs import PairsStrategy
 
+from .qmt_svm import QMTSVMStrategy
+from .qmt_arima import QMTARIMAStrategy
+from .qmt_index_ma import QMTIndexMAStrategy, get_index_constituents
+
 __all__ = [
     "DualMAStrategy",
     "BollingerStrategy",
@@ -24,4 +28,8 @@ __all__ = [
     "RSRSStrategy",
     "MultiFactorStrategy",
     "PairsStrategy",
+    "QMTSVMStrategy",
+    "QMTARIMAStrategy",
+    "QMTIndexMAStrategy",
+    "get_index_constituents",
 ]

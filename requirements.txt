@@ -116,6 +116,7 @@ Pygments==2.20.0
 pyparsing==3.3.2
 PySocks==1.7.1
 python-dateutil==2.9.0.post0
+python-docx==1.2.0
 python-json-logger==4.1.0
 python-multipart==0.0.32
 pytz==2026.2
@@ -159,5 +160,6 @@ websocket-client==1.9.0
 websockets==16.0
 widgetsnbextension==4.0.15
 xlrd==2.0.2
+xtquant==250516.1.1
 yarl==1.24.2
 yfinance==1.4.1

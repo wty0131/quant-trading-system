@@ -3,7 +3,7 @@
 # 如果双击不行，右键 → "使用 PowerShell 运行"
 # ====================================
 
-$PROJECT_DIR = "C:\Users\wty0131\quant_system"
+$PROJECT_DIR = $PSScriptRoot
 
 Set-Location $PROJECT_DIR
 if (-not $?) {

@@ -3,7 +3,7 @@
 #   或 在项目目录直接执行:  .\start.ps1
 
 $port = 8889
-$dir  = "C:\Users\wty0131\quant_system"
+$dir  = $PSScriptRoot
 $venv = "$dir\.venv\Scripts\Activate.ps1"
 
 Set-Location $dir

@@ -3,7 +3,7 @@
 :: 量化系统 — Jupyter 一键启动（双击运行）
 :: ====================================
 
-set PROJECT_DIR=C:\Users\wty0131\quant_system
+set PROJECT_DIR=%~dp0
 
 cd /d "%PROJECT_DIR%"
 if %errorlevel% neq 0 (

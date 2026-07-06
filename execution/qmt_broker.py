@@ -30,7 +30,7 @@ class QMTBroker(Broker):
         self.account_id = account_id or os.environ.get("QMT_ACCOUNT", "")
         self.qmt_path = qmt_path or os.environ.get(
             "QMT_PATH",
-            r"C:\Users\wty0131\Downloads\长城测试交易系统",
+            "",
         )
         self.session_id = session_id
 

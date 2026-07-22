@@ -29,8 +29,8 @@ md([
     "### 代理配置\n",
     "\n",
     "```\n",
-    "v2rayN → SOCKS5 127.0.0.1:10808 → 自动为美股/加密启用\n",
-    "已写入 .env:  PROXY_SOCKS5=socks5://127.0.0.1:10808\n",
+    "v2rayN → SOCKS5 127.0.0.1:PORT → 自动为美股/加密启用\n",
+    "已写入 .env:  PROXY_SOCKS5=socks5://127.0.0.1:PORT\n",
     "```\n",
     "\n",
     "| 市场 | 数据源 | 代理 | 状态 |\n",
@@ -152,7 +152,7 @@ md([
 # ===== 10 =====
 code([
     "import os\n",
-    "os.environ['PROXY_SOCKS5'] = 'socks5://127.0.0.1:10808'  # v2rayN\n",
+    "os.environ['PROXY_SOCKS5'] = 'socks5://127.0.0.1:PORT'  # v2rayN\n",
     "\n",
     "from data.sources.crypto import CryptoSource\n",
     "crypto = CryptoSource()  # 自动探测\n",

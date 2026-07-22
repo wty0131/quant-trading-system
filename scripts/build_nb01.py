@@ -24,8 +24,8 @@ md("""# 01 数据管道 — 三市场统一接口
 ### 代理配置
 
 ```
-v2rayN -> SOCKS5 127.0.0.1:10808 -> 自动为美股/加密启用
-已写入 .env:  PROXY_SOCKS5=socks5://127.0.0.1:10808
+v2rayN -> SOCKS5 127.0.0.1:PORT -> 自动为美股/加密启用
+已写入 .env:  PROXY_SOCKS5=socks5://127.0.0.1:PORT
 ```
 
 | 市场 | 数据源 | 代理 | 状态 |
@@ -128,7 +128,7 @@ CryptoSource()
 
 # === Cell 9 ===
 code("""import os
-os.environ["PROXY_SOCKS5"] = "socks5://127.0.0.1:10808"  # v2rayN
+os.environ["PROXY_SOCKS5"] = "socks5://127.0.0.1:PORT"  # v2rayN
 import importlib
 import data.sources.crypto as cmod
 importlib.reload(cmod)  # 强制重载最新代码
@@ -140,7 +140,7 @@ df_c = crypto.get_history(["BTC/USDT", "ETH/USDT"], "2024-01-01", "2024-06-30")
 if df_c.empty:
     print("⚠️ 加密数据为空")
     print("   1. 确认 v2rayN 正在运行")
-    print("   2. 确认 SOCKS5 端口 10808")
+    print("   2. 确认 SOCKS5 端口 PORT")
     print("   3. 手动验证: crypto.exchange_name")
     print(f"   当前交易所: {crypto.exchange_name}")
 else:

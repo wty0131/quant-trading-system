@@ -8,7 +8,7 @@
 
 用法:
     source = USStockSource()              # 自动读取 PROXY_SOCKS5 环境变量
-    source = USStockSource(proxy='socks5://127.0.0.1:10808')  # 或显式指定
+    source = USStockSource(proxy='socks5://127.0.0.1:PORT')  # 或显式指定
     df = source.get_history(['AAPL', 'TSLA', 'MSFT'], '2024-01-01', '2024-12-31')
 """
 
@@ -29,14 +29,14 @@ class USStockSource(DataSource):
         """
         Args:
             proxy: SOCKS5 代理地址。None = 读 PROXY_SOCKS5 环境变量。
-                   例: 'socks5://127.0.0.1:10808'
+                   例: 'socks5://127.0.0.1:PORT'
         """
         self._proxy = proxy or os.environ.get("PROXY_SOCKS5")
         if not self._proxy:
             print(
                 "[USStockSource] 警告: 未配置代理。"
                 "在国内网络下 yfinance 不可用。"
-                "请在 .env 中设置 PROXY_SOCKS5=socks5://127.0.0.1:10808"
+                "请在 .env 中设置 PROXY_SOCKS5=socks5://127.0.0.1:PORT"
             )
 
     def _fetch(self, symbol: str, start: str, end: str) -> pd.DataFrame:

@@ -30,7 +30,7 @@ class CryptoSource(DataSource):
         Args:
             exchange: 交易所 ID。None = 自动探测。
             proxy:    SOCKS5 代理地址。None = 读环境变量 PROXY_SOCKS5。
-                      例: 'socks5://127.0.0.1:10808'
+                      例: 'socks5://127.0.0.1:PORT'
         """
         self._proxy = proxy or os.environ.get("PROXY_SOCKS5")
         if exchange is None:

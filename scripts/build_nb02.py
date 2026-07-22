@@ -284,7 +284,7 @@ for mkt, syms in [("ashare", ["sh.000300"]), ("crypto", ["BTC/USDT"]), ("usstock
             from data.sources.ashare import AShareSource
             df = AShareSource().get_history(syms, "2024-01-01", "2024-12-31")
         elif mkt == "crypto":
-            os.environ["PROXY_SOCKS5"] = "socks5://127.0.0.1:10808"
+            os.environ["PROXY_SOCKS5"] = "socks5://127.0.0.1:PORT"
             from data.sources.crypto import CryptoSource
             df = CryptoSource().get_history(syms, "2024-01-01", "2024-12-31")
         elif mkt == "usstock":

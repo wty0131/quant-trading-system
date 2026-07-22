@@ -272,7 +272,7 @@ doc.add_paragraph(
 doc.add_heading('3.4 三市场数据源', level=2)
 doc.add_paragraph('A股: baostock (独立源，国内直连，无需Token) → 见 N01 第4章')
 doc.add_paragraph('加密: Gate.io直连 + Kraken/Binance via SOCKS5代理 → 见 N01 第5章')
-doc.add_paragraph('美股: yfinance + v2rayN SOCKS5 (127.0.0.1:10808) → 见 N01 第6章')
+doc.add_paragraph('美股: yfinance + v2rayN SOCKS5 (127.0.0.1:PORT) → 见 N01 第6章')
 
 doc.add_page_break()
 
@@ -473,7 +473,7 @@ doc.add_paragraph(
     '如果你有Gate.io账户：创建API Key → 写入.env → CCXTBroker(testnet=False) → '
     '先跑testnet(测试网，免费假币) → 确认OK → 切到现货实盘。\n'
     '加密市场24/7交易，没有涨跌停/T+1限制，是验证策略执行层的最佳场所。\n'
-    'ccxt_broker.py已就绪，SOCKS5代理自动走v2rayN 10808端口。'
+    'ccxt_broker.py已就绪，SOCKS5代理自动走v2rayN PORT端口。'
 )
 
 doc.add_heading('8.4 你的真实持股怎么接入？', level=2)

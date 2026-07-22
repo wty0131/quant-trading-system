@@ -1,56 +1,44 @@
 # 📊 量化交易系统 (Quantitative Trading System)
 
-基于 Python 的全栈量化交易系统，覆盖**数据采集 → 策略研究 → 回测验证 → 风控管理 → 实盘执行**完整链路。支持 A 股、加密货币、美股三大市场。
+基于 Python 的 A 股量化交易系统，覆盖**数据采集 → 策略研究 → 回测验证 → 风控管理 → 实盘执行**完整链路。
 
-> v1.0 — 6 阶段完整系统 | 事件驱动回测引擎 | 9 种内置策略 | Streamlit 可视化仪表盘
+> v2.0 — A 股专用 | 事件驱动回测引擎 | 10 种内置策略 | Streamlit 可视化仪表盘
 
 ## ✨ 功能模块
 
 ### 📥 数据层 (Data)
-- **三大市场数据源**：A 股（baostock）、加密货币（ccxt）、美股（yfinance）
-- **统一抽象接口**：`DataSource` 基类 → `get_history()` 方法，三市场通用
+- **A 股数据源**：baostock 直连，无需 Token，无需代理
+- **统一抽象接口**：`DataSource` 基类 → `get_history()` 方法
 - **标准化处理管道**：列名映射 → 类型转换 → 去重排序 → 时区归一化
-- **SQLite 存储**：WAL 模式，UPSERT 语义，按市场+周期分表
+- **SQLite 存储**：WAL 模式，UPSERT 语义
 
 ### ⚙️ 回测引擎 (Backtest)
 - **事件驱动架构**：`MarketEvent → Signal → Order → Fill` 完整事件链
-- **逐笔回放**：bar-by-bar 模拟真实交易时序
+- **逐笔回放**：bar-by-bar 模拟真实交易时序，杜绝前瞻偏差
 - **仿真撮合**：可配置滑点与佣金模型
-- **绩效报告**：总收益 / 夏普比率 / 最大回撤 / Calmar 比率 / 年化波动率 / 胜率 / 盈亏比
+- **绩效报告**：总收益 / 夏普比率 / 最大回撤 / Calmar / Sortino / 胜率 / 盈亏比
 
-### 📈 策略库 (Strategies)
+### 📈 策略库 (Strategies) — 10 个策略
 - **经典策略**：双均线、布林带、海龟交易、RSRS 阻力支撑、多因子选股、配对交易
-- **机器学习策略**：SVM 择时、ARIMA 预测
+- **机器学习**：SVM 择时、ARIMA 预测
 - **指数增强**：上证50 成分轮动策略
-- **可扩展架构**：继承 `Strategy` 基类，实现 `on_bar()` 即可
 
 ### 📊 仪表盘 (Dashboard)
 - **Streamlit Web 界面**：4 页导航（总览 / 策略 / 回测 / 风控）
-- **总览页**：净值曲线、收益指标卡片、持仓饼图、回撤分析
-- **回测页**：参数配置 → 一键回测 → 结果可视化
-- **数据缓存**：`@st.cache_data` 1小时 TTL，避免重复查询
+- **回测页**：47 只 A 股可选 → 9 个策略 → 一键回测 → 全指标可视化
+- **策略对比页**：10 个策略全景对比 + 净值曲线 + 回撤 + 相关性矩阵
 
 ### 🛡️ 风控 (Risk)
-- 资金分配（等权 / 波动率加权）
-- 头寸管理（固定比例 / Kelly公式）
-- 止损逻辑（固定百分比 / 动态跟踪止损）
-- 多策略组合
+- 资金分配（等权 / 波动率倒数 / Max Sharpe）
+- 头寸管理（固定比例 / Kelly 公式 / 风险平价 / 波动率目标）
+- 止损系统（固定 / ATR / 移动 / 时间）
+- 多策略组合引擎
 
 ### 🚀 执行层 (Execution)
-- **订单管理系统（OMS）**：完整状态机 `PENDING → PARTIAL_FILLED → FILLED/CANCELLED`
-- **纸交易引擎**：模拟撮合，无风险验证策略
-- **实盘接口**：CCXT（加密货币）、QMT/xtquant（A股）
-- **TWAP 算法**：时间加权平均价格执行
-- **事前风控**：下单前自动检查资金/头寸/涨跌停
-
-### 📓 Jupyter Notebook
-6 个 Notebook 覆盖完整研究流水线：
-- `00_data_exploration.ipynb` — 数据探索
-- `01_data_pipeline.ipynb` — 数据管道
-- `02_backtest_engine.ipynb` — 回测引擎
-- `03_strategies.ipynb` — 策略开发
-- `04_risk_portfolio.ipynb` — 风控与组合
-- `05_live_execution.ipynb` — 实盘执行
+- **订单管理系统 (OMS)**：`PENDING → PARTIAL → FILLED → CANCELLED` 状态机
+- **纸交易引擎**：模拟撮合，零风险验证策略
+- **A 股实盘接口**：QMT / xtquant（长城证券适配）
+- **TWAP 执行算法**
 
 ## 🏗 系统架构
 
@@ -61,7 +49,7 @@
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────┴───────────────────────────────┐
-│                    Strategy Layer                      │
+│                    Strategy Layer (10策略)             │
 │  双均线 │ 布林带 │ 海龟 │ RSRS │ 多因子 │ 配对 │ ...  │
 └──────────────────────┬───────────────────────────────┘
                        │
@@ -77,13 +65,13 @@
                        │
 ┌──────────────────────┴───────────────────────────────┐
 │                  Execution Layer                       │
-│  OMS (State Machine) │ TWAP │ Paper Broker │ Live     │
+│  OMS (State Machine) │ TWAP │ Paper Broker │ QMT     │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────┴───────────────────────────────┐
 │                     Data Layer                         │
-│  A股(baostock) │ 加密(ccxt) │ 美股(yfinance)           │
-│  └─────────── SQLite (WAL) ───────────┘               │
+│              A 股 (baostock 直连)                       │
+│          └─────────── SQLite (WAL) ───────────┘       │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -92,11 +80,11 @@
 | 组件 | 技术 |
 |------|------|
 | **仪表盘** | Streamlit + Matplotlib |
-| **回测引擎** | Python 事件驱动架构（纯手写） |
-| **数据源** | baostock（A股）、ccxt（加密货币）、yfinance（美股）|
-| **数据存储** | SQLite（WAL 模式） + Pandas |
-| **策略建模** | scikit-learn（SVM）、statsmodels（ARIMA）|
-| **实盘接口** | xtquant/QMT（A股）、CCXT（加密货币）|
+| **回测引擎** | Python 事件驱动架构 |
+| **数据源** | baostock（A 股直连） |
+| **数据存储** | SQLite（WAL 模式）+ Pandas |
+| **策略建模** | scikit-learn（SVM）、statsmodels（ARIMA） |
+| **实盘接口** | xtquant / QMT（长城证券） |
 | **研究环境** | Jupyter Notebook |
 
 ## 📁 项目结构
@@ -104,63 +92,58 @@
 ```
 quant_system/
 ├── dashboard/                # Streamlit 仪表盘
-│   ├── app.py                # 主入口：侧边栏导航 + 页面路由
-│   ├── components.py         # 可复用图表组件（净值/回撤/饼图/指标卡）
-│   └── pages/
-│       ├── overview.py       # 总览：净值曲线 + 收益指标
-│       ├── strategies.py     # 策略管理
-│       ├── backtest.py       # 回测：参数配置 + 结果展示
+│   ├── app.py                # 主入口
+│   ├── components.py         # 可复用图表组件
+│   └── tabs/
+│       ├── overview.py       # 总览
+│       ├── strategies.py     # 10 策略全景对比
+│       ├── backtest.py       # 47 只 A 股回测
 │       └── risk.py           # 风控监控
 │
 ├── data/                     # 数据层
-│   ├── schema.py             # OHLCV 列定义 + 标准化
-│   ├── store.py              # SQLite DataStore（WAL / UPSERT）
+│   ├── schema.py             # OHLCV 列定义
+│   ├── store.py              # SQLite DataStore
 │   └── sources/
 │       ├── base.py           # DataSource 抽象基类
-│       ├── ashare.py         # A 股数据源（baostock）
-│       ├── crypto.py         # 加密货币数据源（ccxt）
-│       └── usstocks.py       # 美股数据源（yfinance）
+│       └── ashare.py         # A 股数据源 (baostock)
 │
 ├── backtest/                 # 事件驱动回测引擎
-│   ├── engine.py             # 主循环：逐笔回放
-│   ├── event.py              # 事件类型定义
-│   ├── strategy.py           # Strategy 基类 + 双均线 + 买入持有
-│   ├── portfolio.py          # 组合追踪（现金/持仓/净值）
-│   ├── execution.py          # 仿真撮合（滑点/佣金）
+│   ├── engine.py             # 主循环
+│   ├── event.py              # 事件类型
+│   ├── strategy.py           # Strategy 基类 + 内置指标
+│   ├── portfolio.py          # 组合追踪
+│   ├── execution.py          # 仿真撮合
 │   └── analytics.py          # 绩效报告
 │
-├── strategies/               # 策略库（9 个策略）
-│   ├── bollinger.py          # 布林带策略
-│   ├── turtle.py             # 海龟交易系统
-│   ├── rsrs.py               # RSRS 阻力支撑相对强度
-│   ├── multifactor.py        # 多因子选股
+├── strategies/               # 策略库
+│   ├── bollinger.py          # 布林带
+│   ├── turtle.py             # 海龟交易
+│   ├── rsrs.py               # RSRS
+│   ├── multifactor.py        # 多因子
 │   ├── pairs.py              # 配对交易
-│   ├── qmt_svm.py            # SVM 择时（QMT 集成）
-│   ├── qmt_arima.py          # ARIMA 预测（QMT 集成）
-│   └── qmt_index_ma.py       # 上证50 成分轮动（QMT 集成）
+│   ├── qmt_svm.py            # SVM (QMT 适配)
+│   ├── qmt_arima.py          # ARIMA (QMT 适配)
+│   └── qmt_index_ma.py       # 上证50 轮动 (QMT 适配)
 │
 ├── execution/                # 执行层
 │   ├── broker.py             # Broker 抽象接口
-│   ├── paper_broker.py       # 纸交易撮合
+│   ├── paper_broker.py       # 纸交易
 │   ├── paper_engine.py       # 纸交易引擎
-│   ├── ccxt_broker.py        # 加密货币实盘（CCXT）
-│   ├── qmt_broker.py         # A 股实盘（QMT / xtquant）
-│   ├── oms.py                # 订单管理系统（状态机）
-│   ├── twap.py               # TWAP 执行算法
-│   └── risk_guard.py         # 事前风控检查
+│   ├── qmt_broker.py         # A 股实盘 (QMT)
+│   ├── oms.py                # 订单管理
+│   ├── twap.py               # TWAP 算法
+│   └── risk_guard.py         # 事前风控
 │
 ├── risk/                     # 风控模块
 │   ├── allocator.py          # 资金分配
 │   ├── combiner.py           # 策略组合
 │   ├── sizing.py             # 头寸管理
-│   └── stops.py              # 止损逻辑
+│   └── stops.py              # 止损系统
 │
-├── indicators/               # 自定义指标
-├── notebooks/                # Jupyter 研究流水线（6 个）
-├── scripts/                  # Notebook 构建脚本
-├── tests/                    # 单元测试
-├── .env.example              # 环境变量模板
-├── requirements.txt          # 依赖列表
+├── indicators/               # QMT 指标
+├── notebooks/                # Jupyter 研究流水线 (6 个)
+├── tests/                    # 测试
+├── requirements.txt
 └── README.md
 ```
 
@@ -174,60 +157,41 @@ quant_system/
 ### 2. 安装
 
 ```bash
-# 克隆仓库
 git clone https://github.com/wty0131/quant-trading-system.git
-cd quant_trading_system
-
-# 创建虚拟环境
+cd quant-trading-system
 python -m venv .venv
-
-# 激活虚拟环境
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
-
-# 安装依赖
+.venv\Scripts\activate      # Windows
 pip install -r requirements.txt
 ```
 
-### 3. 配置环境变量
-
-```bash
-# 复制配置模板
-cp .env.example .env
-
-# 编辑 .env，按需填入你的配置
-# 基础使用无需修改任何配置项
-```
-
-### 4. 启动仪表盘
+### 3. 启动仪表盘
 
 ```bash
 streamlit run dashboard/app.py
 ```
 
-浏览器访问 `http://localhost:8501`
+浏览器访问 `http://localhost:8501` — 无需任何配置，即开即用。
 
-### 5. 启动 Jupyter 研究环境
+### 4. 启动 Jupyter 研究环境
 
 ```bash
 jupyter notebook notebooks/
 ```
 
-## 📋 内置策略一览
+## 📋 内置策略
 
-| 策略 | 类型 | 市场 | 说明 |
-|------|------|------|------|
-| 双均线 | 趋势跟踪 | A股/加密/美股 | 短周期均线上穿长周期买入 |
-| 布林带 | 均值回归 | A股/加密/美股 | 突破上下轨时反向交易 |
-| 海龟交易 | 趋势跟踪 | A股/加密/美股 | Donchian 通道突破 + ATR 止损 |
-| RSRS | 阻力支撑 | A股 | 阻力支撑相对强度指标择时 |
-| 多因子选股 | 量化选股 | A股 | 估值/动量/质量多因子打分 |
-| 配对交易 | 统计套利 | A股/加密 | 协整检验 + 价差回归 |
-| SVM 择时 | 机器学习 | A股 | sklearn SVM 分类器预测涨跌 |
-| ARIMA 预测 | 时间序列 | A股 | ARIMA 模型预测短期走势 |
-| 指数成分轮动 | 指数增强 | A股 | 上证50 成分股 + 均线择时 |
+| 策略 | 类型 | 说明 |
+|------|------|------|
+| 双均线 | 趋势跟踪 | 短周期均线上穿长周期买入 |
+| 布林带 | 均值回归 | 突破上下轨时反向交易 |
+| 海龟交易 | 趋势跟踪 | Donchian 通道 + ATR 动态止损 |
+| RSRS | 阻力支撑 | 阻力支撑相对强度择时 |
+| 多因子选股 | 量化选股 | 动量/反转/波动率多因子打分 |
+| 配对交易 | 统计套利 | 协整价差 Z-Score 回归 |
+| SVM 择时 | 机器学习 | sklearn SVM 分类器预测涨跌 |
+| ARIMA 预测 | 时间序列 | ARIMA 模型预测短期走势 |
+| 上证50 轮动 | 指数增强 | 成分股 + MA 择时 |
+| Buy & Hold | 基准 | 买入持有基准对照 |
 
 ## ⚠️ 免责声明
 

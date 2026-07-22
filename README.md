@@ -178,6 +178,75 @@ streamlit run dashboard/app.py
 jupyter notebook notebooks/
 ```
 
+## 🔌 添加你的自定义策略
+
+策略自动发现 —— 你只需在 `strategies/` 目录放一个 `.py` 文件，**无需修改任何现有代码**。
+
+### Step 1: 复制模板
+
+```bash
+cp strategies/_template.py strategies/my_strategy.py
+```
+
+### Step 2: 编写策略
+
+```python
+# my_strategy.py
+from backtest.strategy import Strategy
+from backtest.event import MarketEvent, SignalEvent
+
+class MyMACDStrategy(Strategy):
+    # 元信息 — 仪表盘自动读取
+    name = "我的MACD策略"
+    category = "用户自定义"
+    description = "MACD金叉买入, 死叉卖出"
+
+    def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9):
+        super().__init__()
+        self.fast = fast
+        self.slow = slow
+        self.signal_period = signal
+        self._in_position = False
+
+    def on_bar(self, bar: MarketEvent) -> SignalEvent | None:
+        self._update_price(bar.symbol, bar)
+
+        ema_fast = self.ema(bar.symbol, self.fast)
+        ema_slow = self.ema(bar.symbol, self.slow)
+        if ema_fast is None or ema_slow is None:
+            return None
+
+        if ema_fast > ema_slow and not self._in_position:
+            self._in_position = True
+            return self._bid(bar)
+        elif ema_fast < ema_slow and self._in_position:
+            self._in_position = False
+            return self._ask(bar)
+        return None
+```
+
+### Step 3: 重启仪表盘
+
+```bash
+streamlit run dashboard/app.py
+```
+
+新策略自动出现在回测页下拉菜单中。`__init__` 的参数（`fast=12`, `slow=26`, `signal=9`）自动变成可拖动滑块。
+
+### 可用的基类方法
+
+| 方法 | 说明 |
+|------|------|
+| `self.sma(symbol, period)` | 简单移动平均 |
+| `self.ema(symbol, period)` | 指数移动平均 |
+| `self.highest(symbol, period)` | N日最高价 |
+| `self.lowest(symbol, period)` | N日最低价 |
+| `self.atr(symbol, period)` | 平均真实波幅 |
+| `self.dastd(symbol, period)` | 半衰期加权波动率 |
+| `self.hsigma(symbol, idx_sym, period)` | 加权 Beta |
+| `self._bid(bar)` | 生成买入信号 |
+| `self._ask(bar)` | 生成卖出信号 |
+
 ## 📋 内置策略
 
 | 策略 | 类型 | 说明 |

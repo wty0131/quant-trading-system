@@ -16,7 +16,7 @@ st.set_page_config(page_title="量化交易系统", page_icon="📊", layout="wi
 
 # ── 侧边栏 ──
 st.sidebar.title("📊 量化交易系统")
-st.sidebar.caption("v1.0 — 6阶段完整系统")
+st.sidebar.caption("v2.0 — A股专用")
 
 page = st.sidebar.radio(
     "导航",
@@ -25,10 +25,9 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-st.sidebar.caption("数据源: baostock + Gate.io + yfinance")
+st.sidebar.caption("数据源: baostock 直连")
 st.sidebar.caption("引擎: 事件驱动回测 + 纸交易")
 
-# ── 路由 ──
 if page == "总览":
     from dashboard.tabs.overview import show as _show
 elif page == "策略":

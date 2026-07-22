@@ -87,7 +87,7 @@ def run_all_strategies(symbol="sh.000300"):
 
 def show():
     st.title("全部策略对比")
-    st.caption("10个策略在同一数据上的回测对比 — 系统全策略一览")
+    st.caption("10个策略在同一数据上的回测对比 — 纯A股")
 
     with st.spinner("正在计算所有策略回测..."):
         df, reports, daily_rets, combo_report, corr_matrix, errors = run_all_strategies()

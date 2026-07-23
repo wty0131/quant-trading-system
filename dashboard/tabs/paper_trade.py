@@ -6,16 +6,7 @@ import json
 from pathlib import Path
 
 from dashboard.components import nav_chart
-from execution.paper_runner import (
-    STATE_FILE, ComboPaperRunner, COMBO_STRATEGIES, PAPER_SYMBOLS,
-)
-
-STOCK_NAMES = {
-    "sz.000725": "京东方A",
-    "sh.600050": "中国联通",
-    "sh.601668": "中国建筑",
-    "sh.601398": "工商银行",
-}
+from execution.paper_runner import STATE_FILE, ComboPaperRunner, COMBO_STRATEGIES, PAPER_SYMBOLS
 
 
 def _load_state() -> dict | None:
@@ -37,10 +28,8 @@ def show():
         st.subheader("⚙️ 控制")
         st.info(
             f"**模拟盘股票池:**\n"
-            f"• {STOCK_NAMES['sz.000725']} 约3元 (面板)\n"
-            f"• {STOCK_NAMES['sh.600050']} 约5元 (通信)\n"
-            f"• {STOCK_NAMES['sh.601668']} 约5元 (基建)\n"
-            f"• {STOCK_NAMES['sh.601398']} 约5元 (银行)\n\n"
+            f"全A股 {len(PAPER_SYMBOLS)} 只个股\n"
+            f"(不含指数)\n\n"
             f"**组合逻辑:**\n"
             f"① 去重: 相关>0.7只留一个\n"
             f"② 配权: 波动率倒数\n"
@@ -48,7 +37,7 @@ def show():
             f"Turtle+Bollinger+RSRS+SVM"
         )
 
-        cash = st.number_input("初始资金", 1000, 100_000_000, 2000, 100)
+        cash = st.number_input("初始资金", 1000, 100_000_000, 1_000_000, 100000)
 
         col1, col2 = st.columns(2)
         with col1:

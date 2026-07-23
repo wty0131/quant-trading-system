@@ -48,16 +48,11 @@ COMBO_STRATEGIES = {
 }
 
 # ═══════════════════════════════════════════
-#  模拟盘股票池 — 4只低价真实A股
-#  每只约3-7元, 100股(一手)=300-700元
-#  2000元可各买一手
+#  模拟盘股票池 — 全部 158 只 A 股
+#  从 dashboard/tabs/backtest.py 完整导入
 # ═══════════════════════════════════════════
-PAPER_SYMBOLS = [
-    "sz.000725",  # 京东方A  ~3元  面板龙头
-    "sh.600050",  # 中国联通  ~5元  通信运营商
-    "sh.601668",  # 中国建筑  ~5元  基建龙头
-    "sh.601398",  # 工商银行  ~5元  全球最大银行
-]
+from data.ashare_pool import STOCKS_ONLY as _ALL_STOCKS
+PAPER_SYMBOLS = list(_ALL_STOCKS.values())  # 150只真实个股 (不含指数)
 
 # 默认波动率估算 (年化, 用于初始权重)
 DEFAULT_VOLS = {
@@ -82,7 +77,7 @@ class ComboPaperRunner:
         self,
         strategies: dict[str, callable] = None,
         symbols: list[str] = None,
-        initial_cash: float = 2000,
+        initial_cash: float = 1_000_000,
         slippage: float = 0.001,
         commission_rate: float = 0.0003,
     ):
@@ -143,16 +138,23 @@ class ComboPaperRunner:
         today = date.today()
         fetch_start = self._last_date or (today - timedelta(days=2))
 
-        print(f"\n📡 拉取: {fetch_start} ~ {today}")
+        print(f"\n📡 拉取 {len(self.symbols)} 只: {fetch_start} ~ {today}")
         ashare = AShareSource()
         all_data = []
-        for sym in self.symbols:
-            try:
-                df = ashare.get_history([sym], str(fetch_start), str(today))
-                if not df.empty:
-                    all_data.append(df)
-            except Exception as e:
-                print(f"  ⚠ {sym}: {e}")
+        batch_size = 5  # baostock 每次拉一只, 分 batche 防止断连
+        total = len(self.symbols)
+        for i in range(0, total, batch_size):
+            batch = self.symbols[i:i + batch_size]
+            for sym in batch:
+                try:
+                    df = ashare.get_history([sym], str(fetch_start), str(today))
+                    if not df.empty:
+                        all_data.append(df)
+                except Exception as e:
+                    pass  # 个别股票失败不影响全局
+            if i + batch_size < total:
+                import time; time.sleep(0.5)  # 制动频率
+        print(f"  成功: {len(all_data)}/{total} 只有数据")
 
         if not all_data:
             self._save_state(today)
@@ -279,7 +281,7 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--reset", action="store_true", help="重置")
-    p.add_argument("--cash", type=int, default=2000)
+    p.add_argument("--cash", type=int, default=1_000_000)
     args = p.parse_args()
 
     if args.reset and STATE_FILE.exists():

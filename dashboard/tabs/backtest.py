@@ -6,16 +6,14 @@ import numpy as np
 from dashboard.components import nav_chart, drawdown_chart, report_table
 from data.store import DataStore
 from data.sources.ashare import AShareSource
-from data.ashare_pool import POOL, fetch_all_stocks
+from data.ashare_pool import fetch_all_stocks
 from backtest.engine import BacktestEngine
 from strategies.registry import get_registry
-
-SYMBOLS = POOL
 
 
 def show():
     st.title("策略回测")
-    st.caption(f"精选 {len(SYMBOLS)} 只 + 全市场搜索 5200+ 只 — 16个行业全覆盖")
+    st.caption("搜索全市场 5000+ 只A股 → 选策略 → 点运行")
 
     registry = get_registry()
     by_cat = registry.by_category()
@@ -29,28 +27,23 @@ def show():
         chosen_label = st.selectbox("策略", list(strategy_choices.keys()))
         chosen_meta = strategy_choices[chosen_label]
 
-        # ── 股票选择: 精选池 + 搜索全市场 ──
-        mode = st.radio("选股方式", ["📋 精选池", "🔍 搜索全市场"], horizontal=True)
-        if mode == "📋 精选池":
-            symbol_label = st.selectbox("品种", list(SYMBOLS.keys()))
-            symbol = SYMBOLS[symbol_label]
-        else:
-            search_term = st.text_input("搜索股票名称或代码", "",
-                                       placeholder="如: 600519 / 贵州茅台 / 宁德时代")
-            if search_term:
-                with st.spinner("搜索全市场..."):
-                    all_stocks = fetch_all_stocks()
-                    matches = {k: v for k, v in all_stocks.items()
-                              if search_term.upper() in k.upper()}
-                if matches:
-                    symbol_label = st.selectbox(f"匹配 {len(matches)} 只", list(matches.keys())[:50])
-                    symbol = matches[symbol_label]
-                else:
-                    st.warning("未找到匹配股票")
-                    symbol = None
+        # ── 股票选择 ──
+        search_term = st.text_input("搜索股票名称或代码", "",
+                                   placeholder="如: 600519 / 贵州茅台 / 宁德时代")
+        if search_term:
+            with st.spinner("搜索全市场 5000+ 只A股..."):
+                all_stocks = fetch_all_stocks()
+                matches = {k: v for k, v in all_stocks.items()
+                          if search_term.upper() in k.upper()}
+            if matches:
+                symbol_label = st.selectbox(f"匹配 {len(matches)} 只", list(matches.keys())[:50])
+                symbol = matches[symbol_label]
             else:
-                st.caption("输入股票名或代码搜索")
+                st.warning("未找到匹配股票")
                 symbol = None
+        else:
+            st.caption("输入股票名称或代码搜索 (支持模糊匹配)")
+            symbol = None
 
         col1, col2 = st.columns(2)
         with col1:

@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from data.sources.ashare import AShareSource
-from data.ashare_pool import STOCKS_ONLY
+from data.ashare_pool import get_code_list
 from backtest.event import MarketEvent
 from backtest.strategy import DualMAStrategy, BuyAndHoldStrategy, Strategy
 from strategies.bollinger import BollingerStrategy
@@ -63,7 +63,12 @@ STRATEGY_VOLS = {
     "Pairs": 0.13, "SVM": 0.16, "ARIMA": 0.17, "IndexMA": 0.16,
 }
 
-PAPER_SYMBOLS = list(STOCKS_ONLY.values())
+_PAPER_CACHE: list[str] | None = None
+def _get_symbols() -> list[str]:
+    global _PAPER_CACHE
+    if _PAPER_CACHE is None:
+        _PAPER_CACHE = get_code_list()
+    return _PAPER_CACHE
 
 
 @dataclass
@@ -87,7 +92,7 @@ class IndividualRunner:
     """PART 1: 每个策略独立拿全部资金运行"""
 
     def __init__(self, symbols: list[str] = None, initial_cash: float = 1_000_000):
-        self.symbols = symbols or PAPER_SYMBOLS
+        self.symbols = symbols or _get_symbols()
         self.cash = initial_cash
         self.strategies = {name: factory() for name, factory in ALL_STRATEGIES.items()}
         self.brokers: dict[str, PaperBroker] = {}
@@ -224,7 +229,7 @@ class ComboRunner:
     def __init__(self, strategy_weights: dict[str, float], symbols=None, cash=1_000_000):
         self.weights = strategy_weights
         self.cash = cash
-        self.symbols = symbols or PAPER_SYMBOLS
+        self.symbols = symbols or _get_symbols()
         self.strategies = {name: ALL_STRATEGIES[name]() for name in strategy_weights}
         self.brokers = {name: PaperBroker(cash * w, 0.001, 0.0003)
                        for name, w in strategy_weights.items()}

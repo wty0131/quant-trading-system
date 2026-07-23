@@ -1,24 +1,21 @@
 """
-A股股票池 — 精选池160+只(用于纸交易回测) + 全市场5200+只(用于搜索)
+A股全市场股票池 — 5000+ 只, 从 baostock 实时获取
 
-所有代码经 baostock 验证 (sh=沪市, sz=深市)
-仪表盘和纸交易引擎共用此文件
+用法:
+  from data.ashare_pool import fetch_all_stocks
+  stocks = fetch_all_stocks()  # {名称 (sh.000001): sh.000001, ...}
 
-永远保持 STOCKS_ONLY 更新:
-  from data.ashare_pool import fetch_all_stocks, STOCKS_ONLY
-  all_stocks = fetch_all_stocks()      # 5200+ 只, 用于搜索
-  curated = STOCKS_ONLY                # 160 只精选, 用于回测
+缓存: 首次调用 ~10s, 之后从内存读取
 """
-
-import time
 
 ALL_STOCKS_CACHE: dict[str, str] | None = None
 
 
 def fetch_all_stocks() -> dict[str, str]:
     """
-    从 baostock 获取全市场 A 股列表 (5200+ 只)
-    结果缓存在内存, 仅首次调用时查询 (~10秒)
+    从 baostock 获取全市场 A 股列表 (~5000 只)
+    缓存: 首次 ~10s, 之后内存秒读.
+    过滤: ST/退市
     """
     global ALL_STOCKS_CACHE
     if ALL_STOCKS_CACHE is not None:
@@ -32,168 +29,14 @@ def fetch_all_stocks() -> dict[str, str]:
         while rs.next():
             row = rs.get_row_data()
             code, name, _, _, stype, status = row
-            if stype == '1' and status == '1':  # 正常上市A股
-                # 过滤 ST/退市/科创板初始不稳定的
-                if 'ST' not in name and '退' not in name:
-                    result[f'{name} ({code})'] = code
+            if stype == '1' and status == '1' and 'ST' not in name and '退' not in name:
+                result[f'{name} ({code})'] = code
         ALL_STOCKS_CACHE = result
         return result
     finally:
         bs.logout()
 
-POOL: dict[str, str] = {}
 
-# ── 宽基指数 ──
-INDICES = {
-    "沪深300": "sh.000300", "上证50": "sh.000016", "中证500": "sh.000905",
-    "创业板指": "sz.399006", "科创50": "sh.000688", "深证成指": "sz.399001",
-    "上证180": "sh.000010", "中证1000": "sh.000852",
-}
-
-# ── 金融 ──
-FINANCE = {
-    "招商银行": "sh.600036", "工商银行": "sh.601398", "建设银行": "sh.601939",
-    "农业银行": "sh.601288", "中国银行": "sh.601988", "兴业银行": "sh.601166",
-    "交通银行": "sh.601328", "邮储银行": "sh.601658", "平安银行": "sz.000001",
-    "浦发银行": "sh.600000", "民生银行": "sh.600016", "光大银行": "sh.601818",
-    "中国平安": "sh.601318", "中国人寿": "sh.601628", "中国太保": "sh.601601",
-    "中国人保": "sh.601319", "新华保险": "sh.601336",
-    "中信证券": "sh.600030", "东方财富": "sz.300059", "华泰证券": "sh.601688",
-}
-
-# ── 消费 ──
-CONSUMER = {
-    "贵州茅台": "sh.600519", "五粮液": "sz.000858", "泸州老窖": "sz.000568",
-    "山西汾酒": "sh.600809", "洋河股份": "sz.002304", "古井贡酒": "sz.000596",
-    "伊利股份": "sh.600887", "海天味业": "sh.603288", "金龙鱼": "sz.300999",
-    "双汇发展": "sz.000895", "中国中免": "sh.601888", "安井食品": "sh.603345",
-    "牧原股份": "sz.002714", "温氏股份": "sz.300498",
-}
-
-# ── 科技 ──
-TECH = {
-    "宁德时代": "sz.300750", "比亚迪": "sz.002594", "隆基绿能": "sh.601012",
-    "阳光电源": "sz.300274", "通威股份": "sh.600438", "晶澳科技": "sz.002459",
-    "中芯国际": "sh.688981", "海康威视": "sz.002415", "立讯精密": "sz.002475",
-    "科大讯飞": "sz.002230", "韦尔股份": "sh.603501", "北方华创": "sz.002371",
-    "中微公司": "sh.688012", "寒武纪": "sh.688256", "金山办公": "sh.688111",
-    "用友网络": "sh.600588", "三六零": "sh.601360", "浪潮信息": "sz.000977",
-    "中科曙光": "sh.603019", "紫光股份": "sz.000938", "大华股份": "sz.002236",
-    "歌尔股份": "sz.002241", "兆易创新": "sh.603986",
-}
-
-# ── 医药 ──
-PHARMA = {
-    "恒瑞医药": "sh.600276", "药明康德": "sh.603259", "迈瑞医疗": "sz.300760",
-    "片仔癀": "sh.600436", "长春高新": "sz.000661", "智飞生物": "sz.300122",
-    "爱尔眼科": "sz.300015", "通策医疗": "sh.600763", "泰格医药": "sz.300347",
-    "康龙化成": "sz.300759", "云南白药": "sz.000538", "同仁堂": "sh.600085",
-    "凯莱英": "sz.002821", "华熙生物": "sh.688363",
-}
-
-# ── 能源 ──
-ENERGY = {
-    "中国神华": "sh.601088", "中国石油": "sh.601857", "中国石化": "sh.600028",
-    "中国海油": "sh.600938", "长江电力": "sh.600900", "华能水电": "sh.600025",
-    "紫金矿业": "sh.601899", "洛阳钼业": "sh.603993", "赣锋锂业": "sz.002460",
-    "天齐锂业": "sz.002466", "中国铝业": "sh.601600", "山东黄金": "sh.600547",
-    "华能国际": "sh.600011", "国电电力": "sh.600795",
-}
-
-# ── 工业 ──
-INDUSTRY = {
-    "美的集团": "sz.000333", "格力电器": "sz.000651", "三一重工": "sh.600031",
-    "万华化学": "sh.600309", "福耀玻璃": "sh.600660", "海尔智家": "sh.600690",
-    "汇川技术": "sz.300124", "恒立液压": "sh.601100", "先导智能": "sz.300450",
-    "浙江鼎力": "sh.603338", "中联重科": "sz.000157", "潍柴动力": "sz.000338",
-    "宝钢股份": "sh.600019", "海螺水泥": "sh.600585", "东方雨虹": "sz.002271",
-    "三棵树": "sh.603737",
-}
-
-# ── 地产 ──
-PROPERTY = {
-    "万科A": "sz.000002", "保利发展": "sh.600048", "招商蛇口": "sz.001979",
-    "中国建筑": "sh.601668", "中国中铁": "sh.601390", "中国交建": "sh.601800",
-    "中国铁建": "sh.601186", "中国电建": "sh.601669",
-}
-
-# ── 通信 ──
-TELECOM = {
-    "中国移动": "sh.600941", "中国联通": "sh.600050", "中兴通讯": "sz.000063",
-    "中国电信": "sh.601728", "中际旭创": "sz.300308", "新易盛": "sz.300502",
-    "天孚通信": "sz.300394", "光迅科技": "sz.002281",
-}
-
-# ── 交通 ──
-TRANSPORT = {
-    "京沪高铁": "sh.601816", "中远海控": "sh.601919", "顺丰控股": "sz.002352",
-    "大秦铁路": "sh.601006", "上海机场": "sh.600009", "南方航空": "sh.600029",
-    "中国国航": "sh.601111", "宁波港": "sh.601018",
-}
-
-# ── 汽车 ──
-AUTO = {
-    "上汽集团": "sh.600104", "长城汽车": "sh.601633", "赛力斯": "sh.601127",
-    "长安汽车": "sz.000625", "广汽集团": "sh.601238", "吉利汽车": "sh.600699",
-    "拓普集团": "sh.601689", "德赛西威": "sz.002920", "华域汽车": "sh.600741",
-    "均胜电子": "sh.600699",
-}
-
-# ── 军工 ──
-DEFENSE = {
-    "中航沈飞": "sh.600760", "航发动力": "sh.600893", "中国船舶": "sh.600150",
-    "振华科技": "sz.000733", "航天电器": "sz.002025",
-}
-
-# ── 传媒 ──
-MEDIA = {
-    "分众传媒": "sz.002027", "芒果超媒": "sz.300413", "三七互娱": "sz.002555",
-    "世纪华通": "sz.002602", "光线传媒": "sz.300251", "中国电影": "sh.600977",
-    "万达电影": "sz.002739",
-}
-
-# ── 农业 ──
-AGRICULTURE = {
-    "北大荒": "sh.600598", "隆平高科": "sz.000998", "海大集团": "sz.002311",
-    "大北农": "sz.002385", "新希望": "sz.000876", "登海种业": "sz.002041",
-}
-
-# ── 环保 ──
-UTILITIES = {
-    "伟明环保": "sh.603568", "瀚蓝环境": "sh.600323", "碧水源": "sz.300070",
-    "三峡能源": "sh.600905", "深圳能源": "sz.000027",
-}
-
-# ── 组装 (不含指数, 纯个股) ──
-STOCKS_ONLY: dict[str, str] = {}
-STOCKS_ONLY.update(FINANCE)
-STOCKS_ONLY.update(CONSUMER)
-STOCKS_ONLY.update(TECH)
-STOCKS_ONLY.update(PHARMA)
-STOCKS_ONLY.update(ENERGY)
-STOCKS_ONLY.update(INDUSTRY)
-STOCKS_ONLY.update(PROPERTY)
-STOCKS_ONLY.update(TELECOM)
-STOCKS_ONLY.update(TRANSPORT)
-STOCKS_ONLY.update(AUTO)
-STOCKS_ONLY.update(DEFENSE)
-STOCKS_ONLY.update(MEDIA)
-STOCKS_ONLY.update(AGRICULTURE)
-STOCKS_ONLY.update(UTILITIES)
-
-# 全部 (含指数)
-POOL.update({f"📊 {k}": v for k, v in INDICES.items()})
-POOL.update({f"🏦 {k}": v for k, v in FINANCE.items()})
-POOL.update({f"🛒 {k}": v for k, v in CONSUMER.items()})
-POOL.update({f"💻 {k}": v for k, v in TECH.items()})
-POOL.update({f"💊 {k}": v for k, v in PHARMA.items()})
-POOL.update({f"⚡ {k}": v for k, v in ENERGY.items()})
-POOL.update({f"🏭 {k}": v for k, v in INDUSTRY.items()})
-POOL.update({f"🏗️ {k}": v for k, v in PROPERTY.items()})
-POOL.update({f"📡 {k}": v for k, v in TELECOM.items()})
-POOL.update({f"🚄 {k}": v for k, v in TRANSPORT.items()})
-POOL.update({f"🚗 {k}": v for k, v in AUTO.items()})
-POOL.update({f"🛡️ {k}": v for k, v in DEFENSE.items()})
-POOL.update({f"🎬 {k}": v for k, v in MEDIA.items()})
-POOL.update({f"🌾 {k}": v for k, v in AGRICULTURE.items()})
-POOL.update({f"🌿 {k}": v for k, v in UTILITIES.items()})
+def get_code_list() -> list[str]:
+    """返回纯代码列表"""
+    return list(fetch_all_stocks().values())

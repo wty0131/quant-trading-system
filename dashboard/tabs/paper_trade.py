@@ -11,7 +11,7 @@ from dashboard.components import nav_chart
 from execution.paper_runner import (
     STATE_FILE_INDIVIDUAL, STATE_FILE_COMBO,
     IndividualRunner, ComboRunner,
-    ALL_STRATEGIES, PAPER_SYMBOLS, seed_all,
+    ALL_STRATEGIES, _get_symbols, seed_all,
 )
 
 plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
@@ -75,7 +75,8 @@ def _show_strategy_detail(name: str, r: dict, cash: float):
 
 def show():
     st.title("🧻 纸交易 — 全A股模拟盘")
-    st.caption(f"📡 {len(PAPER_SYMBOLS)} 只A股 | 数据源: baostock 直连 | 100万初始资金")
+    syms = _get_symbols()
+    st.caption(f"📡 {len(syms)} 只A股(全市场) | 数据源: baostock 直连 | 100万初始资金")
 
     cached = _load_individual()
 
@@ -96,7 +97,8 @@ def show():
                 st.rerun()
 
         if run1:
-            with st.spinner(f"7个策略 × {len(PAPER_SYMBOLS)} 只股票并行回测..."):
+            stk_cnt = len(_get_symbols())
+            with st.spinner(f"10个策略 × {stk_cnt} 只股票并行回测..."):
                 seed_all(cash=cash)
             cached = _load_individual()
             st.success("完成!")

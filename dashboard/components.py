@@ -72,6 +72,30 @@ def report_table(report):
     cols2[3].metric("Profit Factor", f"{report.profit_factor:.2f}")
 
 
+def position_pie(positions: dict[str, float], cash: float, title: str = "Portfolio"):
+    """持仓饼图"""
+    total = cash + sum(positions.values())
+    labels = list(positions.keys()) + ["Cash"]
+    values = list(positions.values()) + [cash]
+    fig, ax = plt.subplots(figsize=(5, 5))
+    colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
+    ax.pie(values, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90)
+    ax.set_title(title, fontweight="bold")
+    st.pyplot(fig)
+    plt.close(fig)
+
+
+def trades_table(trades: list[dict]):
+    """交易明细表"""
+    if not trades:
+        st.info("暂无交易记录")
+        return
+    df = pd.DataFrame(trades)
+    if "timestamp" in df.columns:
+        df = df.sort_values("timestamp", ascending=False).head(20)
+    st.dataframe(df, use_container_width=True)
+
+
 def export_csv(data: list[dict], filename_prefix: str):
     """导出按钮"""
     if not data:

@@ -1,9 +1,45 @@
 """
-A股股票池 — 200+只，16个行业
+A股股票池 — 精选池160+只(用于纸交易回测) + 全市场5200+只(用于搜索)
 
 所有代码经 baostock 验证 (sh=沪市, sz=深市)
 仪表盘和纸交易引擎共用此文件
+
+永远保持 STOCKS_ONLY 更新:
+  from data.ashare_pool import fetch_all_stocks, STOCKS_ONLY
+  all_stocks = fetch_all_stocks()      # 5200+ 只, 用于搜索
+  curated = STOCKS_ONLY                # 160 只精选, 用于回测
 """
+
+import time
+
+ALL_STOCKS_CACHE: dict[str, str] | None = None
+
+
+def fetch_all_stocks() -> dict[str, str]:
+    """
+    从 baostock 获取全市场 A 股列表 (5200+ 只)
+    结果缓存在内存, 仅首次调用时查询 (~10秒)
+    """
+    global ALL_STOCKS_CACHE
+    if ALL_STOCKS_CACHE is not None:
+        return ALL_STOCKS_CACHE
+
+    import baostock as bs
+    bs.login()
+    try:
+        rs = bs.query_stock_basic()
+        result = {}
+        while rs.next():
+            row = rs.get_row_data()
+            code, name, _, _, stype, status = row
+            if stype == '1' and status == '1':  # 正常上市A股
+                # 过滤 ST/退市/科创板初始不稳定的
+                if 'ST' not in name and '退' not in name:
+                    result[f'{name} ({code})'] = code
+        ALL_STOCKS_CACHE = result
+        return result
+    finally:
+        bs.logout()
 
 POOL: dict[str, str] = {}
 

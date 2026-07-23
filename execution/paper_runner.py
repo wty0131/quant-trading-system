@@ -32,6 +32,8 @@ from strategies.rsrs import RSRSStrategy
 from strategies.qmt_svm import QMTSVMStrategy
 from strategies.qmt_arima import QMTARIMAStrategy
 from strategies.qmt_index_ma import QMTIndexMAStrategy
+from strategies.multifactor import MultiFactorStrategy
+from strategies.pairs import PairsStrategy
 from execution.paper_broker import PaperBroker
 from execution.oms import OrderManager
 
@@ -40,7 +42,7 @@ STATE_FILE_INDIVIDUAL = PROJECT_ROOT / "data" / "paper_individual.json"
 STATE_FILE_COMBO = PROJECT_ROOT / "data" / "paper_combo.json"
 
 # ═══════════════════════════════════════════
-#  所有可用策略 (每个策略独立跑, 拿全部资金)
+#  全部 10 个策略
 # ═══════════════════════════════════════════
 ALL_STRATEGIES = {
     "Buy&Hold":   lambda: BuyAndHoldStrategy(),
@@ -48,13 +50,17 @@ ALL_STRATEGIES = {
     "Bollinger":  lambda: BollingerStrategy(20, 2.0),
     "Turtle":     lambda: TurtleStrategy(20, 10, 20, 2.0),
     "RSRS":       lambda: RSRSStrategy(18, 0.5, -0.5),
+    "MultiFactor": lambda: MultiFactorStrategy(top_k=5),
+    "Pairs":      lambda: PairsStrategy(60, 2.0, 0.0),
     "SVM":        lambda: QMTSVMStrategy(train_days=120, retrain_freq=20),
     "ARIMA":      lambda: QMTARIMAStrategy(history=120, refit_freq=5),
+    "IndexMA":    lambda: QMTIndexMAStrategy("上证50", 5, 20),
 }
 
 STRATEGY_VOLS = {
     "Buy&Hold": 0.14, "DualMA": 0.16, "Bollinger": 0.12,
-    "Turtle": 0.18, "RSRS": 0.20, "SVM": 0.16, "ARIMA": 0.17,
+    "Turtle": 0.18, "RSRS": 0.20, "MultiFactor": 0.15,
+    "Pairs": 0.13, "SVM": 0.16, "ARIMA": 0.17, "IndexMA": 0.16,
 }
 
 PAPER_SYMBOLS = list(STOCKS_ONLY.values())

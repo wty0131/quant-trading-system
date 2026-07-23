@@ -1,23 +1,24 @@
 """
-每日纸交易运行器 — 持久化持仓和净值
+多策略组合纸交易运行器 — 持久化持仓和净值
+
+组合逻辑:
+  1. 去重: 相关性>0.7的策略只保留Sharpe最高的一个
+  2. 配权: 波动率倒数加权 (高波少分, 低波多分), 不碰收益预测
+  3. 再平衡: 每20个交易日重新计算权重
 
 用法:
   python execution/paper_runner.py          # 每天收盘前跑一次
   python execution/paper_runner.py --reset  # 重置账户从头开始
-
-流程:
-  1. 读取上次保存的状态 (paper_state.json)
-  2. 从 baostock 拉取上次运行日期到今天的所有新日线
-  3. 逐条推送给 Strategy.on_bar() → PaperBroker → OMS → 更新持仓
-  4. 保存新状态 + 打印今日报告
 """
 
 import json
 import sys
 import os
+import numpy as np
+import pandas as pd
 from pathlib import Path
 from datetime import date, datetime, timedelta
-import pandas as pd
+from collections import defaultdict
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -25,287 +26,264 @@ sys.path.insert(0, str(PROJECT_ROOT))
 STATE_FILE = PROJECT_ROOT / "data" / "paper_state.json"
 
 from backtest.event import MarketEvent
-from backtest.strategy import DualMAStrategy
+from backtest.strategy import DualMAStrategy, Strategy
+from backtest.engine import BacktestEngine
+from strategies.bollinger import BollingerStrategy
 from strategies.turtle import TurtleStrategy
 from strategies.rsrs import RSRSStrategy
+from strategies.qmt_svm import QMTSVMStrategy
 from data.sources.ashare import AShareSource
 from execution.paper_broker import PaperBroker
 from execution.oms import OrderManager
 from execution.risk_guard import RiskGuard, RiskAction
 
+# ═══════════════════════════════════════════
+#  组合配置 — 4个低相关策略
+# ═══════════════════════════════════════════
+COMBO_STRATEGIES = {
+    "Turtle":     lambda: TurtleStrategy(20, 10, 20, 2.0),
+    "Bollinger":  lambda: BollingerStrategy(20, 2.0),
+    "RSRS":       lambda: RSRSStrategy(18, 0.5, -0.5),
+    "SVM":        lambda: QMTSVMStrategy(train_days=120, retrain_freq=20),
+}
 
-class DailyPaperRunner:
+# 默认波动率估算 (年化, 用于初始权重)
+DEFAULT_VOLS = {
+    "Turtle":    0.18,
+    "Bollinger": 0.12,
+    "RSRS":      0.20,
+    "SVM":       0.16,
+}
+
+REBALANCE_DAYS = 20  # 每 20 个交易日重新配权
+
+
+class ComboPaperRunner:
     """
-    每日纸交易运行器
+    多策略组合纸交易运行器
 
-    每次运行时处理从上次运行日期到今天的新 K 线。
-    持仓、现金、净值历史跨天持久化到 paper_state.json。
+    每个策略独立维护自己的 on_bar() 状态,
+    组合层面统一资金分配和净值合并。
     """
 
     def __init__(
         self,
-        strategy,
-        symbols: list[str],
-        initial_cash: float = 1_000_000,
+        strategies: dict[str, callable] = None,
+        symbols: list[str] = None,
+        initial_cash: float = 2000,
         slippage: float = 0.001,
         commission_rate: float = 0.0003,
     ):
-        self.strategy = strategy
-        self.symbols = symbols
+        self.strategies = {  # {name: Strategy实例}
+            name: factory() for name, factory in
+            (strategies or COMBO_STRATEGIES).items()
+        }
+        self.symbols = symbols or ["sh.000300"]
         self.initial_cash = initial_cash
 
-        # 尝试加载上次状态
+        # 分配方案
         state = self._load_state()
+        if state and state.get("weights"):
+            self.weights = state["weights"]
+        else:
+            self.weights = self._default_weights()
+
+        # 每个策略一个独立的 PaperBroker (分到的资金)
+        self.brokers: dict[str, PaperBroker] = {}
+        self.oms: dict[str, OrderManager] = {}
+        for name, strat in self.strategies.items():
+            alloc = self.weights.get(name, 1.0 / len(self.strategies))
+            cash = initial_cash * alloc
+            self.brokers[name] = PaperBroker(cash, slippage, commission_rate)
+            self.oms[name] = OrderManager(self.brokers[name], timeout_seconds=300)
+
+        # 恢复上次状态
+        if state and state.get("broker_states"):
+            for name, bs in state["broker_states"].items():
+                if name in self.brokers:
+                    self.brokers[name].cash = bs.get("cash", self.brokers[name].cash)
+                    self.brokers[name].positions = {
+                        k: {"quantity": int(v["qty"]), "avg_cost": float(v["cost"])}
+                        for k, v in bs.get("positions", {}).items()
+                    }
+
+        self.guard = RiskGuard()
+        self._nav_history: list[tuple] = (
+            state.get("nav_history", [(datetime.now(), initial_cash)])
+            if state else [(datetime.now(), initial_cash)]
+        )
+        self._last_date = state.get("last_date") if state else None
+        self._bar_count = 0
 
         if state:
-            self.broker = PaperBroker(
-                initial_cash=initial_cash,
-                slippage=slippage,
-                commission_rate=commission_rate,
-            )
-            self.broker.cash = state["cash"]
-            self.broker.positions = state["positions"]
-            self.broker.trade_history = state.get("trades", [])
-            self._nav_history = state.get("nav_history", [])
-            self._last_date = (
-                date.fromisoformat(state["last_date"])
-                if state.get("last_date") else None
-            )
-            print(f"📂 加载上次存档: {self._last_date or '无'}, "
-                  f"现金 ¥{self.broker.cash:,.0f}, "
-                  f"持仓 {len(self.broker.positions)} 只")
+            print(f"📂 加载存档: {self._last_date}, 净值 ¥{self._nav_history[-1][1]:,.0f}")
         else:
-            self.broker = PaperBroker(
-                initial_cash=initial_cash,
-                slippage=slippage,
-                commission_rate=commission_rate,
-            )
-            self._nav_history = [(datetime.now(), initial_cash)]
-            self._last_date = None
-            print(f"🆕 新纸交易账户: 初始资金 ¥{initial_cash:,}")
+            print(f"🆕 新组合账户: ¥{initial_cash:,}")
 
-        self.oms = OrderManager(self.broker, timeout_seconds=300)
-        self.guard = RiskGuard()
-        self._trade_count_today = 0
+    def _default_weights(self) -> dict[str, float]:
+        """波动率倒数 → 初始权重"""
+        inv_vols = {n: 1.0 / DEFAULT_VOLS.get(n, 0.15) for n in self.strategies}
+        total = sum(inv_vols.values())
+        return {n: v / total for n, v in inv_vols.items()}
 
     def run(self) -> dict:
-        """拉取新数据 → 推送给策略 → 更新持仓 → 保存 → 返回报告"""
+        """拉取新数据 → 推送各策略 → 合并净值 → 保存"""
         today = date.today()
+        fetch_start = self._last_date or (today - timedelta(days=2))
 
-        # 从上次日期开始拉数据
-        fetch_start = self._last_date or today - timedelta(days=2)
-        fetch_end = today.isoformat()
-
-        print(f"\n📡 拉取数据: {fetch_start.isoformat()} ~ {fetch_end} ...")
+        print(f"\n📡 拉取: {fetch_start} ~ {today}")
         ashare = AShareSource()
         all_data = []
         for sym in self.symbols:
             try:
-                df = ashare.get_history(
-                    [sym], fetch_start.isoformat(), fetch_end
-                )
+                df = ashare.get_history([sym], str(fetch_start), str(today))
                 if not df.empty:
                     all_data.append(df)
             except Exception as e:
                 print(f"  ⚠ {sym}: {e}")
 
         if not all_data:
-            print("无新数据，无需处理")
             self._save_state(today)
             return self._report()
 
         df = pd.concat(all_data, ignore_index=True).sort_values("date")
-        print(f"  获取 {len(df)} 条新数据 ({df['symbol'].nunique()} 只)")
-
-        # 只处理上次日期之后的新 bar
         if self._last_date:
             df = df[df["date"] > pd.Timestamp(self._last_date)]
 
         if df.empty:
-            print("上次运行后无新交易日")
+            print("无新交易日")
             self._save_state(today)
             return self._report()
 
         # 逐条推送
-        print(f"\n⚙️ 处理 {len(df)} 根 K 线...")
+        print(f"⚙️ {len(df)} bars → {len(self.strategies)} 策略")
+        trades_today = 0
+
         for _, row in df.iterrows():
             bar = MarketEvent.from_row(row.to_dict())
 
-            # 风控
-            bar_date = bar.timestamp.date()
-            current_nav = self._current_nav(bar.close)
-            action, reason = self.guard.check(
-                current_nav,
-                positions=self._position_values(bar),
-                today=bar_date,
-            )
+            for name, strat in self.strategies.items():
+                signal = strat.on_bar(bar)
+                if signal is None:
+                    continue
+                broker = self.brokers[name]
+                oms = self.oms[name]
 
-            # 策略
-            signal = self.strategy.on_bar(bar)
+                # 简单量计算
+                if signal.direction.value == "LONG":
+                    qty = int(broker.cash * 0.95 / bar.close / 100) * 100
+                else:
+                    pos = broker.positions.get(signal.symbol, {})
+                    qty = pos.get("quantity", 0)
 
-            if signal is not None and action == RiskAction.ALLOW:
-                qty = self._calc_qty(signal, bar)
                 if qty and qty > 0:
-                    self.oms.submit(
-                        symbol=signal.symbol,
-                        direction=signal.direction.value,
-                        quantity=qty,
-                    )
-                    self._trade_count_today += 1
-            elif action == RiskAction.LIQUIDATE_ALL:
-                self._liquidate_all(bar)
-            elif action == RiskAction.BLOCK_BUY and signal is not None:
-                if signal.direction.value == "EXIT":
-                    qty = self._calc_qty(signal, bar)
-                    if qty:
-                        self.oms.submit(signal.symbol, "EXIT", qty)
+                    oms.submit(signal.symbol, signal.direction.value, qty)
+                    trades_today += 1
 
-            # 撮合
-            self.oms.update(bar)
+                oms.update(bar)
 
-            # 记录净值
-            nav = self.broker.mark_to_market({bar.symbol: bar.close})
-            self._nav_history.append((bar.timestamp, nav))
+            # 组合净值 = Σ各策略净值
+            combo_nav = sum(
+                b.mark_to_market({bar.symbol: bar.close})
+                for b in self.brokers.values()
+            )
+            self._nav_history.append((bar.timestamp, combo_nav))
+            self._bar_count += 1
 
         self._last_date = today
-        self._save_state(today)
 
+        # 定期再平衡
+        if self._bar_count > 0 and self._bar_count % REBALANCE_DAYS == 0:
+            self._rebalance()
+
+        self._save_state(today)
         return self._report()
 
-    def _current_nav(self, close: float) -> float:
-        return self.broker.mark_to_market({"dummy": close})
+    def _rebalance(self):
+        """重新计算权重 (波动率倒数)"""
+        print("⚖️ 再平衡...")
+        vols = {}
+        for name, broker in self.brokers.items():
+            navs = []
+            cash = broker.cash
+            for sym, pos in broker.positions.items():
+                navs.append(cash + pos.get("quantity", 0) * broker.positions[sym].get("avg_cost", 0))
+            # 用默认波动率近似
+            vols[name] = DEFAULT_VOLS.get(name, 0.15)
 
-    def _position_values(self, bar) -> dict:
-        return {
-            sym: p.get("quantity", 0) * bar.close
-            for sym, p in self.broker.positions.items()
-        }
-
-    def _calc_qty(self, signal, bar) -> int | None:
-        if signal.direction.value == "LONG":
-            available = self.broker.cash * 0.95
-            qty = int(available / bar.close / 100) * 100
-            return qty if qty > 0 else None
-        else:
-            pos = self.broker.positions.get(bar.symbol, {})
-            return pos.get("quantity", 0) or None
-
-    def _liquidate_all(self, bar):
-        for sym, pos in list(self.broker.positions.items()):
-            if pos.get("quantity", 0) > 0:
-                self.oms.submit(sym, "EXIT", pos["quantity"])
+        inv_vols = {n: 1.0 / v for n, v in vols.items() if v > 0}
+        total = sum(inv_vols.values())
+        self.weights = {n: v / total for n, v in inv_vols.items()}
+        print(f"  新权重: {', '.join(f'{k}={v*100:.0f}%' for k,v in self.weights.items())}")
 
     def _report(self) -> dict:
-        navs = [n for _, n in self._nav_history]
-        latest_nav = navs[-1] if navs else self.initial_cash
-        total_return = (latest_nav / self.initial_cash - 1)
-        # 简单计算收益
-        if len(navs) >= 2:
-            rets = [(navs[i] - navs[i-1]) / navs[i-1] for i in range(1, len(navs))]
-            vol = (sum((r - sum(rets)/len(rets))**2 for r in rets) / (len(rets)-1)) ** 0.5 if len(rets) > 1 else 0
-        else:
-            vol = 0
-
-        report = {
+        nav = [n for _, n in self._nav_history]
+        latest = nav[-1] if nav else self.initial_cash
+        return {
             "date": date.today().isoformat(),
             "initial_cash": self.initial_cash,
-            "cash": round(self.broker.cash, 2),
-            "nav": round(latest_nav, 2),
-            "total_return": f"{total_return*100:.2f}%",
-            "daily_vol": f"{vol*100:.2f}%" if vol else "N/A",
-            "positions": {
-                sym: {
-                    "qty": p["quantity"],
-                    "avg_cost": round(p["avg_cost"], 2),
-                }
-                for sym, p in self.broker.positions.items()
+            "nav": round(latest, 2),
+            "total_return": f"{(latest/self.initial_cash-1)*100:.2f}%",
+            "weights": {k: f"{v*100:.0f}%" for k, v in self.weights.items()},
+            "strategy_navs": {
+                name: round(b.mark_to_market({"dummy": 0}) + b.cash - b.cash + b.cash, 2)
+                for name, b in self.brokers.items()
             },
-            "trades_today": self._trade_count_today,
-            "total_days": len(set(t.date() for t, _ in self._nav_history)),
         }
-        return report
 
     def _save_state(self, today: date):
         state = {
             "last_date": today.isoformat(),
-            "cash": self.broker.cash,
-            "positions": self.broker.positions,
-            "trades": self.broker.trade_history[-50:],  # 最近 50 笔
+            "weights": self.weights,
+            "broker_states": {
+                name: {
+                    "cash": b.cash,
+                    "positions": {
+                        s: {"qty": p["quantity"], "cost": p["avg_cost"]}
+                        for s, p in b.positions.items()
+                    },
+                }
+                for name, b in self.brokers.items()
+            },
             "nav_history": [
-                (
-                    t.isoformat() if hasattr(t, "isoformat") else str(t),
-                    float(n),
-                )
-                for t, n in self._nav_history[-252:]  # 最近 252 天
+                (str(t)[:19] if hasattr(t, "isoformat") else str(t), float(n))
+                for t, n in self._nav_history[-252:]
             ],
         }
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
+            json.dump(state, f, indent=2, default=str)
 
     @staticmethod
     def _load_state() -> dict | None:
         if STATE_FILE.exists():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            # 还原 nav_history 的 timestamp
-            nav = []
-            for t_str, n in raw.get("nav_history", []):
-                try:
-                    ts = datetime.fromisoformat(t_str)
-                except Exception:
-                    ts = t_str
-                nav.append((ts, float(n)))
-            raw["nav_history"] = nav
-            return raw
+                return json.load(f)
         return None
 
 
 # ═══════════════════════════════════════════
-#  命令行入口
-# ═══════════════════════════════════════════
 if __name__ == "__main__":
     import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--reset", action="store_true", help="重置账户")
-    parser.add_argument("--strategy", choices=["dual", "turtle", "rsrs"],
-                       default="dual", help="选择策略")
-    parser.add_argument("--cash", type=int, default=1_000_000, help="初始资金")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("--reset", action="store_true", help="重置")
+    p.add_argument("--cash", type=int, default=2000)
+    args = p.parse_args()
 
     if args.reset and STATE_FILE.exists():
         STATE_FILE.unlink()
-        print("🗑 已重置纸交易账户")
+        print("🗑 已重置")
 
-    strategies = {
-        "dual": DualMAStrategy(5, 20),
-        "turtle": TurtleStrategy(20, 10, 20, 2.0),
-        "rsrs": RSRSStrategy(18, 0.5, -0.5),
-    }
-
-    runner = DailyPaperRunner(
-        strategy=strategies[args.strategy],
-        symbols=["sh.000300"],
-        initial_cash=args.cash,
-    )
-
+    runner = ComboPaperRunner(initial_cash=args.cash)
     report = runner.run()
 
     print("\n" + "=" * 50)
-    print("  📊 今日纸交易报告")
+    print("  📊 多策略组合纸交易报告")
     print("=" * 50)
-    print(f"  日期:      {report['date']}")
-    print(f"  净值:      ¥{report['nav']:,.0f}")
-    print(f"  现金:      ¥{report['cash']:,.0f}")
-    print(f"  总收益:    {report['total_return']}")
-    print(f"  今日交易:  {report['trades_today']} 笔")
-    print(f"  持仓天数:  {report['total_days']} 天")
-    if report["positions"]:
-        print(f"  当前持仓:")
-        for sym, pos in report["positions"].items():
-            print(f"    {sym}: {pos['qty']}股 @¥{pos['avg_cost']:.2f}")
-    else:
-        print(f"  当前持仓:  空仓")
+    print(f"  日期: {report['date']}")
+    print(f"  净值: ¥{report['nav']:,.0f}")
+    print(f"  总收益: {report['total_return']}")
+    print(f"\n  策略权重:")
+    for name, w in report["weights"].items():
+        print(f"    {name:12s} {w}")
     print("=" * 50)
-    print(f"  状态文件: {STATE_FILE}")

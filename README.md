@@ -1,8 +1,8 @@
 # 📊 量化交易系统 (Quantitative Trading System)
 
-基于 Python 的 A 股量化交易系统，覆盖**数据采集 → 策略研究 → 回测验证 → 风控管理 → 实盘执行**完整链路。
+基于 Python 的 A 股量化交易系统，覆盖**数据采集 → 策略研究 → 回测验证 → 风控管理 → 纸交易模拟**完整链路。
 
-> v2.0 — A 股专用 | 158 只股票池 | 10 种策略 | Streamlit 5 页仪表盘 | 网页内编辑自定义策略
+> v2.0 — A 股专用 | 164 只股票池 | 10 种策略 | 6 页仪表盘 | 网页编辑策略 | 纸交易模拟盘
 
 ## ✨ 功能模块
 
@@ -10,7 +10,7 @@
 - **A 股数据源**：baostock 直连，无需 Token，无需代理
 - **统一抽象接口**：`DataSource` 基类 → `get_history()` 一键拉取
 - **标准化管道**：列名映射 → 类型转换 → 去重排序 → 时区归一化
-- **SQLite 存储**：WAL 模式 + UPSERT 语义，按市场+周期分表
+- **SQLite 存储**：WAL 模式 + UPSERT 语义
 
 ### ⚙️ 回测引擎
 - **事件驱动架构**：`MarketEvent → Signal → Order → Fill` 完整链
@@ -19,6 +19,7 @@
 - **绩效报告**：总收益 / 夏普 / Sortino / 最大回撤 / Calmar / 胜率 / 盈亏比
 
 ### 📈 策略库（10 个）
+
 | 策略 | 分类 | 说明 |
 |------|------|------|
 | 买入持有 (基准) | 基准对照 | 验证引擎正确性 |
@@ -32,17 +33,34 @@
 | ARIMA 预测 | 时间序列 | ARIMA 模型预测短期走势 |
 | 上证50 轮动 | 指数增强 | 50 只成分股 MA 交叉轮动 |
 
-### 📊 仪表盘（5 页）
+### 📊 仪表盘（6 页）
+
 | 页面 | 功能 |
 |------|------|
 | 总览 | 净值曲线、收益卡片、持仓饼图、回撤分析 |
 | 策略 | 10 策略全景对比 + 净值 + 回撤 + 相关性矩阵 |
-| 回测 | 158 只股票 × 全部策略 → 选参数 → 一键回测 |
+| 回测 | 164 只股票 × 全部策略 → 选参数 → 一键回测 |
 | 风控 | 风险仪表、仓位监控、风控规则检查 |
-| ✏️ 自定义策略 | **网页内直接写 Python 代码 → 保存即生效** |
+| ✏️ 自定义策略 | 网页内直接写 Python 代码 → 保存即生效 |
+| 🧻 纸交易 | 10 策略并行独立运行 + 自定义组合 + 全策略汇总表 |
 
-### ✏️ 自定义策略（零命令行）
-无需手动创建 `.py` 文件。打开仪表盘 → 「自定义策略」页面 → 在代码编辑器中写 `on_bar()` → 点击保存 → 去回测页立刻能用。`__init__` 参数自动变成滑块。
+### 🧻 纸交易模拟盘 (v3)
+
+两区设计：
+- **Part 1**：10 个策略各拿 100 万独立运行，展示净值/持仓/买卖记录/Sharpe/MDD
+- **Part 2**：自由勾选策略 + 调权重 → 一键组合回测
+- **底部**：全策略汇总表（独立策略 + 组合策略）
+
+164 只真实 A 股，baostock 直连，无需代理。每天收盘前点一次"运行今日"即可更新净值。
+
+### ✏️ 添加策略（三种方式）
+
+| 方式 | 操作 |
+|------|------|
+| 网页编辑器 | 仪表盘 → 自定义策略 → 写代码 → 保存 |
+| 复制模板 | `cp strategies/_template.py strategies/my_strategy.py` |
+| 从零创建 | 在 `strategies/` 放 `.py` 文件，类继承 `Strategy` |
+
 
 ### 🛡️ 风控
 - 资金分配：等权 / 波动率倒数 / Max Sharpe
@@ -69,13 +87,13 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                 Streamlit Dashboard (5页)            │
-│   总览 / 策略 / 回测 / 风控 / 自定义策略               │
+│                 Streamlit Dashboard (6页)            │
+│   总览 / 策略 / 回测 / 风控 / 自定义策略 / 纸交易     │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────┴───────────────────────────────┐
 │              策略注册中心 (自动发现新策略)              │
-│  双均线 │ 布林带 │ 海龟 │ RSRS │ SVM │ ARIMA │ ...  │
+│  Buy&Hold │ DualMA │ Bollinger │ Turtle │ RSRS │ ... │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────┴───────────────────────────────┐
@@ -91,7 +109,7 @@
                        │
 ┌──────────────────────┴───────────────────────────────┐
 │              数据层 (baostock 直连 + SQLite)          │
-│  158 只 A 股，16 个行业，2020-2026 日线数据            │
+│  164 只 A 股，16 个行业，2020-2026 日线数据            │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -111,19 +129,21 @@
 
 ```
 quant_system/
-├── dashboard/                # Streamlit 仪表盘 (5页)
+├── dashboard/                # Streamlit 仪表盘 (6页)
 │   ├── app.py                # 主入口
-│   ├── components.py         # 图表组件 (净值/回撤/饼图/指标卡)
+│   ├── components.py         # 图表组件
 │   └── tabs/
 │       ├── overview.py       # 总览
 │       ├── strategies.py     # 10 策略全景对比
-│       ├── backtest.py       # 158 只 A 股回测
+│       ├── backtest.py       # 164 只 A 股回测
 │       ├── risk.py           # 风控监控
-│       └── custom.py         # ✏️ 网页内写代码
+│       ├── custom.py         # 网页内写代码
+│       └── paper_trade.py    # 纸交易模拟盘
 │
 ├── data/                     # 数据层
 │   ├── schema.py             # OHLCV 列定义
 │   ├── store.py              # SQLite DataStore
+│   ├── ashare_pool.py        # 164 只股票池
 │   └── sources/
 │       ├── base.py           # DataSource 抽象基类
 │       └── ashare.py         # A 股数据源 (baostock)
@@ -146,12 +166,12 @@ quant_system/
 │   ├── pairs.py              # 配对交易
 │   ├── qmt_svm.py            # SVM (QMT 适配)
 │   ├── qmt_arima.py          # ARIMA (QMT 适配)
-│   └── qmt_index_ma.py       # 上证50 轮动 (QMT 适配)
+│   └── qmt_index_ma.py       # 上证50 轮动
 │
 ├── execution/                # 执行层
 │   ├── broker.py             # Broker 抽象接口
 │   ├── paper_broker.py       # 纸交易
-│   ├── paper_engine.py       # 纸交易引擎
+│   ├── paper_runner.py       # 纸交易引擎 v3
 │   ├── qmt_broker.py         # A 股实盘 (QMT)
 │   ├── oms.py                # 订单管理 (状态机)
 │   ├── twap.py               # TWAP 拆单算法
@@ -166,7 +186,6 @@ quant_system/
 ├── indicators/               # QMT 流动性因子
 ├── notebooks/                # Jupyter (6 个)
 ├── tests/                    # 测试 (6 个)
-├── scripts/                  # Notebook 构建脚本
 ├── requirements.txt
 └── README.md
 ```
@@ -176,7 +195,6 @@ quant_system/
 ### 环境要求
 
 - Python 3.10+
-- Windows / macOS / Linux
 
 ### 安装
 
@@ -184,13 +202,7 @@ quant_system/
 git clone https://github.com/wty0131/quant-trading-system.git
 cd quant-trading-system
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
-
+.venv\Scripts\activate      # Windows
 pip install -r requirements.txt
 ```
 
@@ -202,25 +214,17 @@ streamlit run dashboard/app.py
 
 浏览器打开 `http://localhost:8501` → 无需任何配置。
 
-### 启动研究环境
+### 运行纸交易
 
 ```bash
-jupyter notebook notebooks/
+python execution/paper_runner.py --cash 1000000
 ```
 
-## ✏️ 添加你的策略（三种方式）
+或者直接在仪表盘「纸交易」页面点击「运行」。
 
-### 方式 1：网页编辑器（推荐）
-打开仪表盘 → 「自定义策略」→ 写代码 → 保存 → 去回测页下拉菜单选择。
+## ✏️ 添加你的策略
 
-### 方式 2：复制模板
-```bash
-cp strategies/_template.py strategies/my_strategy.py
-# 编辑 my_strategy.py → 重启仪表盘
-```
-
-### 方式 3：从零创建
-在 `strategies/` 下放一个 `.py` 文件，类继承 `Strategy`，实现 `on_bar()`，设置 `name` / `category` / `description` 三个属性即可。重启仪表盘自动发现。
+只需在 `strategies/` 放一个 `.py` 文件：
 
 ```python
 from backtest.strategy import Strategy
@@ -239,8 +243,7 @@ class MyStrategy(Strategy):
     def on_bar(self, bar: MarketEvent) -> SignalEvent | None:
         self._update_price(bar.symbol, bar)
         ma = self.sma(bar.symbol, self.ma_period)
-        if ma is None:
-            return None
+        if ma is None: return None
         if bar.close > ma and not self._in_position:
             self._in_position = True
             return self._bid(bar)
@@ -250,42 +253,13 @@ class MyStrategy(Strategy):
         return None
 ```
 
-### on_bar() 可用方法
-
-| 方法 | 说明 |
-|------|------|
-| `self.sma(symbol, period)` | 简单移动平均 |
-| `self.ema(symbol, period)` | 指数移动平均 |
-| `self.highest(symbol, period)` | N 日最高价 |
-| `self.lowest(symbol, period)` | N 日最低价 |
-| `self.atr(symbol, period)` | 平均真实波幅 |
-| `self.dastd(symbol, period)` | 半衰期加权波动率 |
-| `self.hsigma(sym, idx, period)` | 加权 Beta |
-| `self.cmra(symbol)` | 12 月累计收益范围 |
-| `self._bid(bar)` | 生成买入信号 |
-| `self._ask(bar)` | 生成卖出信号 |
-
-## 📋 回测结果示例
-
-以下为 10 个策略在沪深300 2024 年日线数据上的回测对比（模拟数据，仅展示报告格式）：
-
-| 指标 | 说明 |
-|------|------|
-| 总收益率 / 年化收益率 | 策略整体表现 |
-| 年化波动率 | 净值波动程度 |
-| 夏普比率 | >0.5 值得考虑，>1 优秀 |
-| 最大回撤 | 绝对值 <15% 可接受 |
-| Calmar 比率 | 年化收益 / 最大回撤的绝对值 |
-| 胜率 / 盈亏比 | 交易层面表现 |
-
-> ⚠ 回测结果不等于实盘表现。历史收益不保证未来收益。
+重启仪表盘 → 新策略自动出现在回测页下拉菜单中。
 
 ## ⚠️ 免责声明
 
 - 本系统仅供**学习研究**使用，不构成任何投资建议
 - 回测结果不代表实盘表现，历史收益不保证未来收益
 - 量化交易存在风险，实盘交易可能导致本金亏损
-- 使用本系统进行的任何交易操作，风险由使用者自行承担
 
 ## 📄 License
 

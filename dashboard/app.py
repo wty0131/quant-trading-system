@@ -20,7 +20,7 @@ st.sidebar.caption("v2.0 — A股专用")
 
 page = st.sidebar.radio(
     "导航",
-    ["总览", "策略", "回测", "风控", "自定义策略"],
+    ["总览", "策略", "回测", "风控", "自定义策略", "纸交易"],
     label_visibility="collapsed",
 )
 
@@ -38,6 +38,8 @@ elif page == "风控":
     from dashboard.tabs.risk import show as _show
 elif page == "自定义策略":
     from dashboard.tabs.custom import show as _show
+elif page == "纸交易":
+    from dashboard.tabs.paper_trade import show as _show
 else:
     from dashboard.tabs.overview import show as _show
 

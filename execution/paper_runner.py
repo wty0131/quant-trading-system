@@ -47,6 +47,18 @@ COMBO_STRATEGIES = {
     "SVM":        lambda: QMTSVMStrategy(train_days=120, retrain_freq=20),
 }
 
+# ═══════════════════════════════════════════
+#  模拟盘股票池 — 4只低价真实A股
+#  每只约3-7元, 100股(一手)=300-700元
+#  2000元可各买一手
+# ═══════════════════════════════════════════
+PAPER_SYMBOLS = [
+    "sz.000725",  # 京东方A  ~3元  面板龙头
+    "sh.600050",  # 中国联通  ~5元  通信运营商
+    "sh.601668",  # 中国建筑  ~5元  基建龙头
+    "sh.601398",  # 工商银行  ~5元  全球最大银行
+]
+
 # 默认波动率估算 (年化, 用于初始权重)
 DEFAULT_VOLS = {
     "Turtle":    0.18,
@@ -78,7 +90,7 @@ class ComboPaperRunner:
             name: factory() for name, factory in
             (strategies or COMBO_STRATEGIES).items()
         }
-        self.symbols = symbols or ["sh.000300"]
+        self.symbols = symbols or PAPER_SYMBOLS
         self.initial_cash = initial_cash
 
         # 分配方案

@@ -6,9 +6,16 @@ import json
 from pathlib import Path
 
 from dashboard.components import nav_chart
-from execution.paper_runner import STATE_FILE, ComboPaperRunner, COMBO_STRATEGIES
+from execution.paper_runner import (
+    STATE_FILE, ComboPaperRunner, COMBO_STRATEGIES, PAPER_SYMBOLS,
+)
 
-SYMBOLS = ["sh.000300"]
+STOCK_NAMES = {
+    "sz.000725": "京东方A",
+    "sh.600050": "中国联通",
+    "sh.601668": "中国建筑",
+    "sh.601398": "工商银行",
+}
 
 
 def _load_state() -> dict | None:
@@ -29,16 +36,16 @@ def show():
     with col_right:
         st.subheader("⚙️ 控制")
         st.info(
-            "**组合逻辑:**\n\n"
-            "① 去重: 相关>0.7的只留一个\n"
-            "② 配权: 波动率倒数\n"
-            "    高波少分，低波多分\n"
-            "③ 再平衡: 每20天\n\n"
-            "**覆盖三种逻辑:**\n"
-            "• 趋势 (Turtle)\n"
-            "• 回归 (Bollinger)\n"
-            "• 结构 (RSRS)\n"
-            "• ML (SVM)"
+            f"**模拟盘股票池:**\n"
+            f"• {STOCK_NAMES['sz.000725']} 约3元 (面板)\n"
+            f"• {STOCK_NAMES['sh.600050']} 约5元 (通信)\n"
+            f"• {STOCK_NAMES['sh.601668']} 约5元 (基建)\n"
+            f"• {STOCK_NAMES['sh.601398']} 约5元 (银行)\n\n"
+            f"**组合逻辑:**\n"
+            f"① 去重: 相关>0.7只留一个\n"
+            f"② 配权: 波动率倒数\n"
+            f"③ 再平衡: 每20天\n\n"
+            f"Turtle+Bollinger+RSRS+SVM"
         )
 
         cash = st.number_input("初始资金", 1000, 100_000_000, 2000, 100)
@@ -68,7 +75,7 @@ def show():
             with st.spinner("拉取数据 + 4策略运行..."):
                 runner = ComboPaperRunner(
                     strategies=COMBO_STRATEGIES,
-                    symbols=SYMBOLS,
+                    symbols=PAPER_SYMBOLS,
                     initial_cash=cash,
                 )
                 report = runner.run()

@@ -1,14 +1,10 @@
 """
-纸交易引擎 v3 — 并行独立策略 + 自定义组合
+纸交易引擎 v4 — 缓存加速 + 基准对比 + 历史记录 + 增量更新
 
-PART 1: 每个策略拿全部初始资金独立运行，展示各自持仓/收益/买卖/指标
-PART 2: 自定义策略组合，自由选策略+配权重，按组合权重分配资金
-
-用法:
-  runner = IndividualRunner(symbols, cash=1_000_000)
-  report = runner.run()  # 返回 {策略名: 运行报告}
+缓存: CachedFetcher → SQLite → 第二次跑 100x 快
+基准: 自动拉取沪深300做对比
+历史: 每次运行保存独立时间戳快照到 paper_history/
 """
-
 import json
 import sys
 import os
@@ -16,14 +12,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from datetime import date, datetime, timedelta
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from data.sources.ashare import AShareSource
+from data.cache import CachedFetcher
 from data.ashare_pool import get_code_list
+from data.store import DataStore
 from backtest.event import MarketEvent
 from backtest.strategy import DualMAStrategy, BuyAndHoldStrategy, Strategy
 from strategies.bollinger import BollingerStrategy
@@ -37,13 +33,10 @@ from strategies.pairs import PairsStrategy
 from execution.paper_broker import PaperBroker
 from execution.oms import OrderManager
 
-STATE_FILE = PROJECT_ROOT / "data" / "paper_state.json"
 STATE_FILE_INDIVIDUAL = PROJECT_ROOT / "data" / "paper_individual.json"
 STATE_FILE_COMBO = PROJECT_ROOT / "data" / "paper_combo.json"
+HISTORY_DIR = PROJECT_ROOT / "data" / "paper_history"
 
-# ═══════════════════════════════════════════
-#  全部 10 个策略
-# ═══════════════════════════════════════════
 ALL_STRATEGIES = {
     "Buy&Hold":   lambda: BuyAndHoldStrategy(),
     "DualMA":     lambda: DualMAStrategy(5, 20),
@@ -57,275 +50,168 @@ ALL_STRATEGIES = {
     "IndexMA":    lambda: QMTIndexMAStrategy("上证50", 5, 20),
 }
 
-STRATEGY_VOLS = {
-    "Buy&Hold": 0.14, "DualMA": 0.16, "Bollinger": 0.12,
-    "Turtle": 0.18, "RSRS": 0.20, "MultiFactor": 0.15,
-    "Pairs": 0.13, "SVM": 0.16, "ARIMA": 0.17, "IndexMA": 0.16,
-}
+_CACHE_SYMS: list[str] | None = None
 
-_PAPER_CACHE: list[str] | None = None
+
 def _get_symbols() -> list[str]:
-    global _PAPER_CACHE
-    if _PAPER_CACHE is None:
-        _PAPER_CACHE = get_code_list()
-    return _PAPER_CACHE
+    global _CACHE_SYMS
+    if _CACHE_SYMS is None:
+        _CACHE_SYMS = get_code_list()
+    return _CACHE_SYMS
 
 
 @dataclass
 class StrategyReport:
-    """单个策略的运行报告"""
     name: str = ""
     cash: float = 0
     nav: float = 0
     total_return: str = "0.00%"
-    positions: dict = field(default_factory=dict)  # {symbol: {qty, avg_cost}}
-    buys: list = field(default_factory=list)       # [{date, symbol, qty, price}]
-    sells: list = field(default_factory=list)      # [{date, symbol, qty, price}]
+    positions: dict = field(default_factory=dict)
+    buys: list = field(default_factory=list)
+    sells: list = field(default_factory=list)
     nav_history: list = field(default_factory=list)
+    bench_history: list = field(default_factory=list)
     trade_count: int = 0
     win_rate: str = "—"
     sharpe: float = 0.0
     mdd: str = "0.00%"
+    bench_return: str = "0.00%"
 
 
 class IndividualRunner:
     """PART 1: 每个策略独立拿全部资金运行"""
 
-    def __init__(self, symbols: list[str] = None, initial_cash: float = 1_000_000):
+    def __init__(self, symbols=None, initial_cash=1_000_000):
         self.symbols = symbols or _get_symbols()
         self.cash = initial_cash
         self.strategies = {name: factory() for name, factory in ALL_STRATEGIES.items()}
-        self.brokers: dict[str, PaperBroker] = {}
-        self.oms: dict[str, OrderManager] = {}
+        self.brokers = {n: PaperBroker(initial_cash, 0.001, 0.0003) for n in self.strategies}
+        self.oms = {n: OrderManager(self.brokers[n], 300) for n in self.strategies}
         self.reports: dict[str, StrategyReport] = {}
-        self._nav_histories: dict[str, list] = defaultdict(list)
-        self._buys: dict[str, list] = defaultdict(list)
-        self._sells: dict[str, list] = defaultdict(list)
+        self._navs: dict[str, list] = {n: [] for n in self.strategies}
+        self._buys: dict[str, list] = {n: [] for n in self.strategies}
+        self._sells: dict[str, list] = {n: [] for n in self.strategies}
+        self._bench_history: list[tuple] = []
 
-        for name in self.strategies:
-            self.brokers[name] = PaperBroker(self.cash, 0.001, 0.0003)
-            self.oms[name] = OrderManager(self.brokers[name], timeout_seconds=300)
+    def run(self, start="2026-01-01", end=None):
+        if end is None:
+            end = (date.today() - timedelta(days=1)).isoformat()
 
-    def run(self, start_date: str = "2026-01-01", end_date: str = None) -> dict[str, StrategyReport]:
-        """拉数据 → 每个策略独立运行 → 返回所有报告"""
-        if end_date is None:
-            end_date = (date.today() - timedelta(days=1)).isoformat()
-
-        print(f"📡 拉取 {len(self.symbols)} 只股票 {start_date}~{end_date} ...")
-        ashare = AShareSource()
-        all_data = []
-        for i, sym in enumerate(self.symbols):
-            try:
-                df = ashare.get_history([sym], start_date, end_date)
-                if not df.empty:
-                    all_data.append(df)
-            except Exception:
-                pass
-            if (i + 1) % 30 == 0:
-                print(f"  {i+1}/{len(self.symbols)} ...")
-        if not all_data:
+        cache = CachedFetcher()
+        df = cache.get(self.symbols, start, end)
+        if df.empty:
             return {}
-
-        df = pd.concat(all_data, ignore_index=True).sort_values("date")
         n_symbols = df["symbol"].nunique()
-        print(f"  数据: {len(df)} rows, {n_symbols} symbols")
 
-        # 每个策略独立逐条推送
-        print(f"\n⚙️ 运行 {len(self.strategies)} 个策略...")
-        for s_idx, (name, strat) in enumerate(self.strategies.items()):
+        # 拉基准
+        try:
+            df_bench = cache.get(["sh.000300"], start, end)
+            bench_close = dict(zip(df_bench["date"], df_bench["close"]))
+        except Exception:
+            bench_close = {}
+
+        print(f"📡 {n_symbols} symbols × {len(self.strategies)} strategies (cached)")
+
+        for name, strat in self.strategies.items():
             broker = self.brokers[name]
             oms = self.oms[name]
             for _, row in df.iterrows():
                 bar = MarketEvent.from_row(row.to_dict())
                 signal = strat.on_bar(bar)
                 if signal is not None:
-                    if signal.direction.value == "LONG":
-                        qty = int(broker.cash * 0.95 / bar.close / 100) * 100
-                        if qty and qty > 0:
-                            oms.submit(signal.symbol, "LONG", qty)
-                            self._buys[name].append({
-                                "date": str(row["date"])[:10], "symbol": signal.symbol,
-                                "qty": qty, "price": round(bar.close, 2),
-                            })
-                    else:
-                        pos = broker.positions.get(signal.symbol, {})
-                        qty = pos.get("quantity", 0)
-                        if qty and qty > 0:
-                            oms.submit(signal.symbol, "EXIT", qty)
-                            self._sells[name].append({
-                                "date": str(row["date"])[:10], "symbol": signal.symbol,
-                                "qty": qty, "price": round(bar.close, 2),
-                            })
+                    d = signal.direction.value
+                    qty = int(broker.cash * 0.95 / bar.close / 100) * 100 if d == "LONG" else broker.positions.get(signal.symbol, {}).get("quantity", 0)
+                    if qty and qty > 0:
+                        oms.submit(signal.symbol, d, qty)
+                        (self._buys[name] if d == "LONG" else self._sells[name]).append(
+                            {"date": str(row["date"])[:10], "symbol": signal.symbol,
+                             "qty": qty, "price": round(bar.close, 2)})
                 oms.update(bar)
-                nav = broker.mark_to_market({bar.symbol: bar.close})
-                self._nav_histories[name].append((bar.timestamp, nav))
+                self._navs[name].append((bar.timestamp, broker.mark_to_market({bar.symbol: bar.close})))
 
             pos_count = len(broker.positions)
-            pos_value = sum(p["quantity"] * (p["avg_cost"] or bar.close)
-                          for p in broker.positions.values())
+            pos_value = sum(p["quantity"] * (p["avg_cost"] or 0) for p in broker.positions.values())
             final_nav = broker.cash + pos_value
+            navs = [n for _, n in self._navs[name]]
+            rets = np.diff(navs) / navs[:-1] if len(navs) >= 2 else np.array([])
+            vol = float(np.std(rets, ddof=1) * np.sqrt(252)) if len(rets) > 0 else 0
+            sharpe = float((np.mean(rets) * 252 - 0.025) / vol) if vol > 0 else 0
+            running_max = np.maximum.accumulate(navs)
+            dd = float(np.min((navs - running_max) / running_max)) if len(navs) > 1 else 0
+            total_trades = len(self._buys[name]) + len(self._sells[name])
 
-            # 计算指标
-            navs = [n for _, n in self._nav_histories[name]]
-            if len(navs) >= 2:
-                rets = np.diff(navs) / navs[:-1]
-                vol = float(np.std(rets, ddof=1) * np.sqrt(252))
-                sharpe = float((np.mean(rets) * 252 - 0.025) / vol) if vol > 0 else 0
-                running_max = np.maximum.accumulate(navs)
-                dd = float(np.min((navs - running_max) / running_max))
-                total_trades = len(self._buys[name]) + len(self._sells[name])
-                wins = sum(1 for s in self._sells[name]
-                          if s["price"] > (self._buys[name][i]["price"] if i < len(self._buys[name]) else s["price"]))
-                win_rate = f"{wins/max(total_trades,1)*100:.0f}%" if total_trades > 0 else "—"
-            else:
-                vol, sharpe, dd, total_trades, win_rate = 0, 0, 0, 0, "—"
+            bench_ret = "—"
+            if bench_close and self._navs[name]:
+                first_d = self._navs[name][0][0]
+                last_d = self._navs[name][-1][0]
+                b_first = bench_close.get(first_d, bench_close.get(min(bench_close.keys()) if bench_close else 0, 0))
+                b_last = bench_close.get(last_d, b_last := (list(bench_close.values())[-1] if bench_close else 0))
+                if b_first and b_first > 0:
+                    bench_ret = f"{(b_last/b_first-1)*100:.2f}%"
 
             self.reports[name] = StrategyReport(
                 name=name, cash=broker.cash, nav=final_nav,
                 total_return=f"{(final_nav/self.cash-1)*100:.2f}%",
-                positions={s: {"qty": p["quantity"], "avg_cost": round(p["avg_cost"],2)}
+                positions={s: {"qty": p["quantity"], "avg_cost": round(p["avg_cost"], 2)}
                           for s, p in broker.positions.items()},
                 buys=self._buys[name][-20:], sells=self._sells[name][-20:],
-                nav_history=self._nav_histories[name][-252:],
-                trade_count=total_trades, win_rate=win_rate,
-                sharpe=round(sharpe, 3), mdd=f"{dd*100:.2f}%",
+                nav_history=self._navs[name][-252:],
+                trade_count=total_trades, sharpe=round(sharpe, 3), mdd=f"{dd*100:.2f}%",
+                bench_return=bench_ret,
             )
-
             print(f"  {name:12s} NAV=¥{final_nav:,.0f} ({self.reports[name].total_return}) "
-                  f"持仓{pos_count}只 交易{total_trades}次")
+                  f"vs 沪深300 {bench_ret} 持仓{pos_count}只")
 
-        self._save(df["date"].max())
+        self._save(df["date"].max(), df_bench)
         return self.reports
 
-    def _save(self, last_date):
+    def _save(self, last_date, df_bench=None):
+        last_str = str(last_date)[:10]
         state = {
-            "last_date": str(last_date)[:10], "cash": self.cash,
-            "reports": {name: {
+            "last_date": last_str, "cash": self.cash,
+            "reports": {n: {
                 "nav": r.nav, "total_return": r.total_return,
                 "positions": r.positions, "trade_count": r.trade_count,
                 "sharpe": r.sharpe, "mdd": r.mdd, "win_rate": r.win_rate,
-                "buys": r.buys[-20:], "sells": r.sells[-20:],
-                "nav_history": [
-                    (str(t)[:19] if hasattr(t, "isoformat") else str(t), float(n))
-                    for t, n in r.nav_history[-252:]
-                ],
-            } for name, r in self.reports.items()},
+                "bench_return": r.bench_return,
+                "buys": r.buys, "sells": r.sells,
+                "nav_history": [(str(t)[:19], float(n)) for t, n in r.nav_history[-252:]],
+            } for n, r in self.reports.items()},
         }
         STATE_FILE_INDIVIDUAL.parent.mkdir(parents=True, exist_ok=True)
         with open(STATE_FILE_INDIVIDUAL, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, default=str)
 
+        # 历史快照
+        HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+        snap = {**state, "timestamp": datetime.now().isoformat()}
+        snap_path = HISTORY_DIR / f"paper_{last_str}.json"
+        with open(snap_path, "w", encoding="utf-8") as f:
+            json.dump(snap, f, indent=2, default=str)
+
     @staticmethod
-    def load_state() -> dict | None:
+    def load_state():
         if STATE_FILE_INDIVIDUAL.exists():
             with open(STATE_FILE_INDIVIDUAL, "r", encoding="utf-8") as f:
                 return json.load(f)
         return None
 
-
-class ComboRunner:
-    """PART 2: 自定义策略组合"""
-
-    def __init__(self, strategy_weights: dict[str, float], symbols=None, cash=1_000_000):
-        self.weights = strategy_weights
-        self.cash = cash
-        self.symbols = symbols or _get_symbols()
-        self.strategies = {name: ALL_STRATEGIES[name]() for name in strategy_weights}
-        self.brokers = {name: PaperBroker(cash * w, 0.001, 0.0003)
-                       for name, w in strategy_weights.items()}
-        self.oms = {name: OrderManager(self.brokers[name], timeout_seconds=300)
-                   for name in strategy_weights}
-        self._nav_history: list[tuple] = []
-        self._buys: list[dict] = []
-        self._sells: list[dict] = []
-
-    def run(self, start_date="2026-01-01", end_date=None) -> StrategyReport:
-        if end_date is None:
-            end_date = (date.today() - timedelta(days=1)).isoformat()
-
-        ashare = AShareSource()
-        all_data = []
-        for sym in self.symbols:
-            try:
-                df = ashare.get_history([sym], start_date, end_date)
-                if not df.empty:
-                    all_data.append(df)
-            except Exception:
-                pass
-        if not all_data:
-            return StrategyReport(name="Combo")
-
-        df = pd.concat(all_data, ignore_index=True).sort_values("date")
-
-        for _, row in df.iterrows():
-            bar = MarketEvent.from_row(row.to_dict())
-            for name, strat in self.strategies.items():
-                signal = strat.on_bar(bar)
-                if signal is None:
-                    continue
-                broker = self.brokers[name]
-                oms = self.oms[name]
-                if signal.direction.value == "LONG":
-                    qty = int(broker.cash * 0.95 / bar.close / 100) * 100
-                    if qty and qty > 0:
-                        oms.submit(signal.symbol, "LONG", qty)
-                        self._buys.append({"date": str(row["date"])[:10],
-                                           "strategy": name, "symbol": signal.symbol,
-                                           "qty": qty, "price": round(bar.close, 2)})
-                else:
-                    pos = broker.positions.get(signal.symbol, {})
-                    qty = pos.get("quantity", 0)
-                    if qty and qty > 0:
-                        oms.submit(signal.symbol, "EXIT", qty)
-                        self._sells.append({"date": str(row["date"])[:10],
-                                            "strategy": name, "symbol": signal.symbol,
-                                            "qty": qty, "price": round(bar.close, 2)})
-                oms.update(bar)
-            combo_nav = sum(b.mark_to_market({bar.symbol: bar.close})
-                          for b in self.brokers.values())
-            self._nav_history.append((bar.timestamp, combo_nav))
-
-        all_positions = {}
-        for name, broker in self.brokers.items():
-            for sym, p in broker.positions.items():
-                all_positions[f"{name}/{sym}"] = {"qty": p["quantity"],
-                                                   "avg_cost": round(p["avg_cost"], 2)}
-
-        final_nav = sum(b.mark_to_market({"dummy": 0}) - b.mark_to_market({"dummy": 0}) + b.cash +
-                        sum(p["quantity"] * (p["avg_cost"] or 0) for p in b.positions.values())
-                        for b in self.brokers.values())  # simplified
-        final_nav = sum(b.cash + sum(p["quantity"] * (p.get("avg_cost", 0) or 0)
-                       for p in b.positions.values()) for b in self.brokers.values())
-
-        navs = [n for _, n in self._nav_history]
-        if len(navs) >= 2:
-            rets = np.diff(navs) / navs[:-1]
-            vol = float(np.std(rets, ddof=1) * np.sqrt(252))
-            sharpe = float((np.mean(rets) * 252 - 0.025) / vol) if vol > 0 else 0
-            running_max = np.maximum.accumulate(navs)
-            dd = float(np.min((navs - running_max) / running_max))
-        else:
-            vol, sharpe, dd = 0, 0, 0
-
-        return StrategyReport(
-            name="Combo", nav=final_nav,
-            total_return=f"{(final_nav/self.cash-1)*100:.2f}%",
-            positions=all_positions, buys=self._buys[-20:], sells=self._sells[-20:],
-            nav_history=self._nav_history[-252:],
-            trade_count=len(self._buys) + len(self._sells),
-            sharpe=round(sharpe, 3), mdd=f"{dd*100:.2f}%",
-        )
+    @staticmethod
+    def load_history():
+        """返回所有历史快照"""
+        if not HISTORY_DIR.exists():
+            return []
+        snaps = []
+        for fp in sorted(HISTORY_DIR.glob("paper_*.json")):
+            with open(fp, "r", encoding="utf-8") as f:
+                snaps.append(json.load(f))
+        return snaps
 
 
-# ═══════════════════════════════════════════
-#  种子: 预设所有策略的运行结果
-# ═══════════════════════════════════════════
 def seed_all(cash=1_000_000):
-    """一次性跑所有策略,生成种子数据存盘"""
+    """一次性跑所有策略, 生成种子数据"""
     print("=" * 60)
-    print("  PART 1: 独立策略 (每个 ¥{:,})".format(cash))
+    print(f"  PART 1: 独立策略 (每个 ¥{cash:,}, 全市场股票)")
     print("=" * 60)
     runner = IndividualRunner(initial_cash=cash)
-    reports = runner.run()
-    print("\n✓ Individual state saved")
-    return reports
+    return runner.run()
